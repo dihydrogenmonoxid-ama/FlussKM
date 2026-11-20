@@ -6,7 +6,7 @@ Karten-Web-App, die zu einem **Flusskilometer** die genaue Position findet und d
 
 ## Funktionen
 
-- **Kilometersuche** für Rhein, Elbe, Donau, Weser, Main, Mosel, Neckar, Saale und Oder (weitere Gewässer lassen sich in `DEFAULT_RIVERS` in `index.html` ergänzen)
+- **Kilometersuche** für Rhein, Elbe, Donau, Isar, Main, Mosel, Neckar, Saale und Oder (weitere Gewässer lassen sich in `DEFAULT_RIVERS` in `index.html` ergänzen)
   - Nutzt Kilometermarken aus OpenStreetMap/OpenSeaMap (`seamark:type=distance_mark`, `waterway=milestone`)
   - Zwischenwerte wie `325,4` werden zwischen benachbarten Marken interpoliert. Liegen Marken an beiden Ufern, zeigt die App die Mitte zwischen ihnen.
   - **Plausibilisierung über PEGELONLINE:** Aus der Kilometrierung der Pegel wird eine erwartete Position berechnet. So werden gleich nummerierte Marken anderer Gewässer (z. B. Kanäle oder Nebenflüsse mit eigener Kilometrierung) nachrangig einsortiert und als „weitere Treffer“ angeboten.
@@ -102,5 +102,5 @@ Die öffentlichen Dienste (Overpass, Nominatim, OSM-Kacheln) haben Nutzungsricht
 
 - Kilometermarken in OSM sind von Freiwilligen erfasst. Ihre Abdeckung ist je nach Fluss unterschiedlich.
 - Eine Schätzung aus den Pegeln ist eine **Luftlinien-Interpolation** zwischen zwei Pegeln. In Flussschleifen kann sie mehrere hundert Meter bis Kilometer danebenliegen.
-- Unterweser und Mittel-/Oberweser werden getrennt kilometriert. Die App erkennt solche Doppelungen und zeigt dann mehrere Treffer.
+- Für die Isar gibt es bei PEGELONLINE keine Pegel (Landesgewässer). Die Suche zählt dort nur Marken entlang des OSM-Flusslaufs, eine vorläufige Schätzung entfällt, und es werden keine Isar-Pegel angezeigt.
 - Die App ersetzt keine amtlichen Informationen. Für Einsätze gelten die Angaben der WSV und der zuständigen Stellen.

@@ -1043,11 +1043,14 @@ body.rotated .maplibregl-ctrl-group button.maplibregl-ctrl-compass { background-
 
 // Bounding Boxes im Format [süd, west, nord, ost].
 // pegelonline: Gewässer-Kurzname(n) bei PEGELONLINE (für Plausibilisierung).
+// Leere Liste = Landesgewässer ohne PEGELONLINE-Pegel (z. B. Isar): Suche nur über OSM-Marken.
+// osm: Name des Flusslaufs in OSM – nur Marken entlang dieses Flusses zählen (Ersatz für die
+//      Plausibilisierung über Pegel, sonst landen z. B. Salzach-/Inn-Marken gleicher Nummer im Treffer).
 const DEFAULT_RIVERS = [
     { name: 'Rhein',  pegelonline: ['RHEIN'],  bbox: [46.4, 3.9, 52.2, 10.0] },
     { name: 'Elbe',   pegelonline: ['ELBE'],   bbox: [49.5, 8.4, 54.1, 16.0] },
     { name: 'Donau',  pegelonline: ['DONAU'],  bbox: [47.3, 8.0, 49.2, 17.2] },
-    { name: 'Weser',  pegelonline: ['WESER'],  bbox: [51.3, 8.0, 53.95, 10.0] },
+    { name: 'Isar',   pegelonline: [],         bbox: [47.35, 11.0, 48.85, 13.0], osm: 'Isar' },
     { name: 'Main',   pegelonline: ['MAIN'],   bbox: [49.6, 8.1, 50.35, 11.7] },
     { name: 'Mosel',  pegelonline: ['MOSEL'],  bbox: [48.9, 5.8, 50.45, 7.7] },
     { name: 'Neckar', pegelonline: ['NECKAR'], bbox: [48.6, 8.4, 49.6, 9.5] },
@@ -2099,13 +2102,14 @@ function searchBbox(river, estimates) {
     return [s, w, n, e].map(v => Math.round(v * 1e4) / 1e4);
 }
 
-function buildMarkQuery(bbox, km) {
+function buildMarkQuery(bbox, km, river) {
     const lo = Math.max(0, km - KM_WINDOW);
     const hi = km + KM_WINDOW;
     const [s, w, n, e] = bbox;
     const ints = [];
     for (let i = Math.floor(lo); i <= Math.ceil(hi); i++) ints.push(i);
-    const re = `^(km ?)?(${ints.join('|')})(,[0-9]+)?$`;
+    // Schreibweisen wie „325,4“, „km 325“ oder „257.6 km“ (is_number greift dort nicht)
+    const re = `^(km ?)?(${ints.join('|')})([.,][0-9]+)?( ?km)?$`;
 
     const numeric = KM_TAGS.map(k =>
         `node.all(if: is_number(t["${k}"]) && number(t["${k}"]) >= ${lo} && number(t["${k}"]) <= ${hi});`);
@@ -2113,7 +2117,7 @@ function buildMarkQuery(bbox, km) {
 
     return {
         lo, hi,
-        query: `[out:json][timeout:30][bbox:${s},${w},${n},${e}];
+        query: `[out:json][timeout:60][bbox:${s},${w},${n},${e}];
 (
   node["seamark:type"="distance_mark"];
   node["waterway"="milestone"];
@@ -2121,7 +2125,10 @@ function buildMarkQuery(bbox, km) {
 (
   ${numeric.join('\n  ')}
   ${textual.join('\n  ')}
-);
+)->.cand;
+${river && river.osm
+    ? `way["waterway"="river"]["name"="${river.osm.replace(/"/g, '')}"]->.riv;\nnode.cand(around.riv:500);`
+    : '.cand;'}
 out body;`
     };
 }
@@ -2294,7 +2301,7 @@ function nearbyGauges(river, km, pos) {
 const TYPE_PENALTY = { exact: 0, interp: 0.2, nearest: 5 };
 
 // Ergebnisse allein aus den Pegeln. Weitere Schätzungen nur, wenn sie ähnlich eng
-// eingegrenzt sind (z. B. die zweite Kilometrierung der Unterweser).
+// eingegrenzt sind (z. B. zwei Kilometrierungen unter demselben Gewässerkürzel).
 function estimateResults(estimates) {
     const strong = estimates.filter(e => e.kind !== 'near');
     if (!strong.length) return [];
@@ -2321,7 +2328,7 @@ async function kmSearch(river, km) {
         const estimates = gaugeEstimates(river, km);
         const hasEst = estimates.length > 0;
         const estResults = estimateResults(estimates);
-        const { query, lo, hi } = buildMarkQuery(searchBbox(river, estimates), km);
+        const { query, lo, hi } = buildMarkQuery(searchBbox(river, estimates), km, river);
 
         // Sofort eine vorläufige Position aus den Pegeln zeigen – Overpass kann dauern.
         if (estResults.length) {
@@ -2379,7 +2386,9 @@ async function kmSearch(river, km) {
 
         if (!results.length) {
             const msg = overpassError
-                ? 'Die OSM-Server sind gerade nicht erreichbar, und für diesen Kilometer liegen keine passenden Pegel vor.'
+                ? (river.pegelonline.length
+                    ? 'Die OSM-Server sind gerade nicht erreichbar, und für diesen Kilometer liegen keine passenden Pegel vor.'
+                    : `Die OSM-Server sind gerade nicht erreichbar. Für die ${river.name} gibt es keine Pegel als Ersatz.`)
                 : `Für ${river.name} km ${fmtKm(km)} gibt es in OpenStreetMap keine Kilometermarke im Umkreis von ±${KM_WINDOW} km, und es liegen keine passenden Pegel vor.`;
             $('#kmResult').innerHTML = `<div class="card"><h3>Kein Treffer</h3><p class="res-src">${esc(msg)}</p>
                 ${overpassError ? '<button class="btn-ghost" type="button" data-retry style="width:100%;margin-top:8px">Erneut versuchen</button>' : ''}</div>`;
