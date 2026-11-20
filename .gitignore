@@ -1,0 +1,31 @@
+# Lokale Hinweise für KI-Assistenten / persönliche Einstellungen
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+GEMINI.md
+.cursor/
+.cursorrules
+.codex/
+.gemini/
+
+# Betriebssystem
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Editoren / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Lokale Umgebung, Logs, Abhängigkeiten (falls später Werkzeuge dazukommen)
+.env
+.env.*
+*.log
+node_modules/
+__pycache__/
+.playwright-mcp/

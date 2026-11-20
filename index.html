@@ -1,0 +1,3445 @@
+<!DOCTYPE html>
+<html lang="de" data-ui="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e2747">
+<meta name="description" content="Flusskilometer-Suche und aktuelle Pegelstände auf einer Karte">
+<title>FlussKM – Flusskilometer &amp; Pegel</title>
+
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="FlussKM">
+<meta name="mobile-web-app-capable" content="yes">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+
+<style>
+:root {
+    --bg: #ffffff;
+    --bg-solid: #ffffff;
+    --sunken: #f1f4f8;
+    --sunken-hover: #e6ebf2;
+    --fg: #14202e;
+    --muted: #5d6b7c;
+    --faint: #8a96a5;
+    --line: #e3e8ef;
+    --hover: #f1f4f8;
+    --field: #ffffff;
+    --field-line: #d5dce5;
+    --accent: #2468a8;
+    --accent-hover: #1d5891;
+    --accent-fg: #ffffff;
+    --accent-soft: #e8f1fa;
+    --danger: #c0352b;
+    --ok: #2e7d4f;
+    --ok-soft: #e7f4ec;
+    --warn: #b7791f;
+    --warn-soft: #fdf5e6;
+    --warn-fg: #6a4a10;
+    --shadow: 0 1px 2px rgba(16, 32, 52, 0.06), 0 8px 28px rgba(16, 32, 52, 0.16);
+    --shadow-sm: 0 1px 2px rgba(16, 32, 52, 0.12);
+    --map-bg: #e8eef3;
+    --r: 10px;
+}
+
+:root[data-ui="dark"] {
+    --bg: #161b22;
+    --bg-solid: #161b22;
+    --sunken: #0f1318;
+    --sunken-hover: #1f262f;
+    --fg: #e6edf3;
+    --muted: #9aa7b4;
+    --faint: #6e7b89;
+    --line: #262e38;
+    --hover: #1f262f;
+    --field: #0f1318;
+    --field-line: #303a46;
+    --accent: #6cb2f0;
+    --accent-hover: #8cc4f4;
+    --accent-fg: #071422;
+    --accent-soft: #14273a;
+    --danger: #ff7b72;
+    --ok: #56d364;
+    --ok-soft: #12261a;
+    --warn: #e3b341;
+    --warn-soft: #2a2312;
+    --warn-fg: #f0d58c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px rgba(0, 0, 0, 0.5);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --map-bg: #0e1116;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--map-bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#map { position: fixed; inset: 0; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* ---------- Panel ---------- */
+
+.panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 5;
+    width: 372px;
+    /* unten Platz für den Quellenhinweis (i) */
+    max-height: calc(100% - 24px - 48px);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    font-size: 14px;
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 6px 8px 14px;
+    flex: none;
+}
+
+.brand {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+}
+
+.brand-icon { width: 28px; height: 28px; border-radius: 7px; flex: none; }
+
+.brand small {
+    font-weight: 500;
+    font-size: 12.5px;
+    letter-spacing: 0;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.icon-btn {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border: 0;
+    border-radius: var(--r);
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+
+.icon-btn:hover { background: var(--hover); color: var(--fg); }
+.icon-btn svg { transition: transform 0.2s; }
+.panel.collapsed .chev { transform: rotate(180deg); }
+
+/* Reiter als Segmented Control */
+.tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 12px 12px;
+    padding: 3px;
+    background: var(--sunken);
+    border-radius: 11px;
+    flex: none;
+}
+
+.tab {
+    flex: 1;
+    min-height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { background: var(--bg-solid); color: var(--fg); box-shadow: var(--shadow-sm); }
+:root[data-ui="dark"] .tab[aria-selected="true"] { background: #232b35; }
+
+.badge {
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--line);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tab[aria-selected="true"] .badge { background: var(--accent-soft); color: var(--accent); }
+
+.panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 2px 14px 16px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.panel.collapsed .panel-body { display: none; }
+.panel.collapsed .tabs { margin-bottom: 10px; }
+
+:is(.panel, .dlg) label.field {
+    display: block;
+    margin: 12px 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+:is(.panel, .dlg) input[type="text"],
+:is(.panel, .dlg) select {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 16px; /* verhindert Auto-Zoom auf iOS */
+    color: var(--fg);
+    background: var(--field);
+    border: 1px solid var(--field-line);
+    border-radius: var(--r);
+    transition: border-color 0.15s;
+}
+
+:is(.panel, .dlg) input[type="text"]:hover,
+:is(.panel, .dlg) select:hover { border-color: var(--faint); }
+:is(.panel, .dlg) input::placeholder { color: var(--faint); }
+
+:is(.panel, .dlg) input:focus-visible,
+:is(.panel, .dlg) select:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+:is(.panel, .dlg) button:focus-visible,
+.maplibregl-popup button:focus-visible,
+.measure-box button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.row { display: flex; gap: 8px; }
+.row > input { flex: 1; min-width: 0; }
+
+/* Primär */
+.btn {
+    position: relative;
+    min-height: 44px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: var(--r);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font: inherit;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn:hover { background: var(--accent-hover); }
+.btn:disabled { cursor: progress; }
+.btn.busy { color: transparent; }
+.btn.busy::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--accent-fg);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Sekundär: flächig statt umrandet */
+.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--sunken);
+    color: var(--fg);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.btn-ghost:hover { background: var(--sunken-hover); }
+.btn-ghost:disabled { opacity: 0.45; cursor: default; }
+.btn-ghost.danger, .btn-text.danger { color: var(--danger); }
+.btn-ghost svg { flex: none; }
+
+/* Textknopf */
+.btn-text {
+    min-height: 32px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+}
+
+.btn-text:hover { background: var(--hover); }
+
+.hint { margin: 10px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+
+.status {
+    flex: none;
+    padding: 9px 14px 10px;
+    font-size: 12.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+}
+
+.status:empty { display: none; }
+.status.err { color: var(--danger); }
+
+/* Karten / Ergebnisse */
+
+.card {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+}
+
+.card h3 { margin: 0; font-size: 17px; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.card p { margin: 4px 0; font-size: 13px; line-height: 1.45; }
+.card .muted { color: var(--muted); }
+
+.res-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.res-src { margin: 4px 0 2px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 18px;
+    white-space: nowrap;
+}
+
+.tag-ok { background: var(--ok-soft); color: var(--ok); }
+.tag-info { background: var(--accent-soft); color: var(--accent); }
+.tag-warn { background: var(--warn-soft); color: var(--warn); }
+.tag-busy { background: var(--sunken); color: var(--muted); }
+
+.actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.actions .btn-ghost { padding: 0 6px; }
+
+.warn {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--warn);
+    border-radius: 4px 8px 8px 4px;
+    background: var(--warn-soft);
+    color: var(--warn-fg);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.sub-h {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 16px 0 2px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.sub-h small { font-weight: 500; color: var(--muted); }
+
+/* Listen */
+
+.list { list-style: none; margin: 4px -6px 0; padding: 0; }
+
+.list button {
+    width: 100%;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.list button:hover { background: var(--hover); }
+.list .empty, .list .more { padding: 12px 6px; font-size: 13px; color: var(--muted); }
+
+.li-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.li-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-val { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.li-temp { font-size: 12px; font-weight: 500; color: #0b7c88; }
+:root[data-ui="dark"] .li-temp { color: #4dd0e1; }
+
+.dot {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--bg-solid), 0 0 0 3px rgba(0, 0, 0, 0.14);
+}
+
+.pegel-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.pegel-meta.err { color: var(--danger); }
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend .dot { width: 9px; height: 9px; }
+
+/* ---------- Karte: Steuerelemente ---------- */
+
+.maplibregl-ctrl-group {
+    background: var(--bg-solid);
+    border-radius: var(--r) !important;
+    box-shadow: var(--shadow-sm), 0 0 0 1px var(--line) !important;
+    overflow: hidden;
+}
+.maplibregl-ctrl-group button + button { border-top-color: var(--line) !important; }
+.maplibregl-ctrl-group button:hover { background-color: var(--hover) !important; }
+:root[data-ui="dark"] .maplibregl-ctrl button .maplibregl-ctrl-icon { filter: invert(1) hue-rotate(180deg); }
+.maplibregl-ctrl-attrib.maplibregl-compact { background: var(--bg-solid); color: var(--muted); box-shadow: var(--shadow-sm); }
+:root[data-ui="dark"] .maplibregl-ctrl-attrib a { color: var(--fg); }
+:root[data-ui="dark"] .maplibregl-ctrl-attrib-button { filter: invert(1); }
+.maplibregl-ctrl-scale {
+    background: color-mix(in srgb, var(--bg-solid) 80%, transparent);
+    color: var(--fg);
+    border-color: var(--fg);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.maplibregl-ctrl button.ctrl-svg { display: grid; place-items: center; color: var(--fg); }
+/* Einnorden: hervorgehoben, sobald die Karte gedreht ist */
+body.rotated .maplibregl-ctrl-group button.maplibregl-ctrl-compass { background-color: var(--accent-soft) !important; }
+.maplibregl-ctrl-group button.ctrl-svg[aria-pressed="true"],
+.maplibregl-ctrl-group button.ctrl-svg[aria-pressed="true"]:hover { background: var(--accent) !important; color: var(--accent-fg); }
+
+@media (pointer: coarse) {
+    .maplibregl-ctrl-group button { width: 40px; height: 40px; }
+}
+
+.layer-ctrl { position: relative; overflow: visible !important; }
+
+.layer-menu {
+    position: absolute;
+    top: 0;
+    right: calc(100% + 8px);
+    z-index: 10;
+    width: 260px;
+    padding: 6px;
+    background: var(--bg-solid);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.layer-menu[hidden] { display: none; }
+
+.layer-menu .lm-h {
+    padding: 8px 10px 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.layer-menu label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.layer-menu label:hover { background: var(--hover); }
+.layer-menu label.disabled { opacity: 0.45; cursor: default; }
+.layer-menu label.disabled:hover { background: transparent; }
+.layer-menu input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
+.layer-menu small { display: block; font-size: 12px; color: var(--muted); }
+.layer-menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+
+/* ---------- Popups ---------- */
+
+.maplibregl-popup-content {
+    background: var(--bg-solid);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: var(--shadow);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.maplibregl-popup-close-button {
+    top: 6px;
+    right: 6px;
+    width: 30px;
+    height: 30px;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--muted);
+    border-radius: 8px;
+}
+
+.maplibregl-popup-close-button:hover { background: var(--hover); color: var(--fg); }
+
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--bg-solid); }
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--bg-solid); }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--bg-solid); }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--bg-solid); }
+
+.pp-title { padding-right: 30px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.pp-sub { margin-top: 1px; color: var(--muted); font-size: 12.5px; }
+.pp-value { display: flex; align-items: baseline; gap: 6px; margin: 10px 0 2px; font-size: 14px; }
+.pp-value .dot { align-self: center; }
+.pp-value b { font-size: 24px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.pp-trend { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.pp-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pp-temp { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #0b7c88; }
+.pp-temp b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.pp-temp .pp-meta { margin-left: auto; }
+.pp-temp.stale, .pp-temp.stale b { color: var(--muted); }
+:root[data-ui="dark"] .pp-temp { color: #4dd0e1; }
+.pp-state {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 10px;
+    margin: 10px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+}
+.pp-state dt { color: var(--muted); }
+.pp-state dd { margin: 0; }
+.spark { margin-top: 10px; min-height: 76px; color: var(--muted); font-size: 12px; }
+.spark svg { display: block; width: 100%; height: auto; }
+.pp-links { margin-top: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.pp-links a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.pp-links a:hover { text-decoration: underline; }
+.pp-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 8px -6px -4px; }
+.pp-foot [data-details] { margin-right: auto; }
+
+/* ---------- Koordinaten / Positionsmarker ---------- */
+
+.coord-list {
+    margin-top: 10px;
+    padding: 2px;
+    background: var(--sunken);
+    border-radius: var(--r);
+}
+
+.coord-row {
+    position: relative;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 58px 1fr;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    cursor: copy;
+}
+
+.coord-row + .coord-row { box-shadow: 0 -1px 0 var(--line); }
+.coord-row:hover { background: var(--sunken-hover); box-shadow: none; }
+.coord-row:hover + .coord-row { box-shadow: none; }
+
+.cr-k { font-size: 12px; font-weight: 600; color: var(--muted); }
+.cr-v {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cr-ok {
+    position: absolute;
+    right: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--ok-soft);
+    color: var(--ok);
+    font-size: 11.5px;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+}
+
+.coord-row.copied .cr-ok { opacity: 1; }
+.coord-hint { margin: 4px 2px 0; font-size: 11.5px; color: var(--faint); }
+
+.copy-btn {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.copy-btn:hover { background: var(--sunken-hover); color: var(--accent); }
+.copy-btn.ok { color: var(--ok); }
+
+/* ---------- Strecke messen ---------- */
+
+.measure-box {
+    position: absolute;
+    top: 12px;
+    left: 398px;
+    z-index: 6;
+    width: 330px;
+    max-width: calc(100% - 398px - 70px);
+    padding: 12px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    font-size: 13px;
+}
+
+.measure-box[hidden] { display: none; }
+.mb-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.mb-title { font-size: 13px; font-weight: 600; color: var(--muted); }
+.mb-total { font-size: 22px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mb-sub { margin-top: 2px; color: var(--muted); font-size: 12.5px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.mb-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.mb-actions .btn-ghost { flex: 1; min-height: 38px; padding: 0 8px; }
+.mb-actions .btn-ghost.primary { background: var(--accent); color: var(--accent-fg); }
+
+.measure-pt { display: flex; align-items: center; cursor: grab; }
+.mp-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 3px solid #e8590c;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.mp-label {
+    position: absolute;
+    left: 18px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: #e8590c;
+    color: #ffffff;
+    font: 600 11.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+@media (pointer: coarse) {
+    .mp-dot { width: 20px; height: 20px; }
+    .mp-label { left: 24px; }
+}
+
+@media (max-width: 767px) {
+    .measure-box { top: 10px; left: 10px; width: auto; right: 64px; max-width: none; }
+}
+
+/* ---------- Einstellungen / Hinweise ---------- */
+
+:is(.panel, .dlg) code { font-size: 12px; padding: 1px 4px; border-radius: 4px; background: var(--sunken); }
+.first-run { margin-top: 4px; border: 0; background: var(--accent-soft); }
+.first-run p { margin: 0 0 2px; }
+.ok-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; background: var(--ok-soft); }
+.ok-card p { margin: 0; }
+
+/* Gebietsgrenze als Zeile mit Schalter */
+.grenze-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 8px 6px 8px 10px;
+    background: var(--sunken);
+    border-radius: var(--r);
+}
+.grenze-swatch {
+    width: 16px;
+    height: 12px;
+    flex: none;
+    border: 2px dashed #8e24aa;
+    border-radius: 3px;
+    background: rgba(142, 36, 170, 0.08);
+}
+:root[data-ui="dark"] .grenze-swatch { border-color: #e040fb; }
+.grenze-row.off .grenze-swatch { border-color: var(--faint); background: transparent; }
+.grenze-row.off .li-title { color: var(--muted); }
+
+.switch {
+    position: relative;
+    width: 40px;
+    height: 24px;
+    flex: none;
+    border: 0;
+    border-radius: 999px;
+    background: var(--field-line);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.switch::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s;
+}
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); }
+
+.pin-actions { display: flex; gap: 6px; margin-top: 10px; }
+.pin-actions .btn-ghost { flex: 1; min-height: 38px; }
+
+.pin-mode .maplibregl-canvas-container.maplibregl-interactive { cursor: crosshair; }
+.mobile-only { display: none !important; }
+@media (max-width: 767px) { .mobile-only { display: inline-flex !important; } }
+
+.pegel-label {
+    padding: 1px 7px 1px 6px;
+    border: 0;
+    border-left: 3px solid #78909c;
+    border-radius: 6px;
+    background: var(--bg-solid);
+    color: var(--fg);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+    font: 600 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.pegel-label .t { font-weight: 500; color: #0b7c88; }
+:root[data-ui="dark"] .pegel-label .t { color: #4dd0e1; }
+
+/* ---------- Handy: Panel als Bottom Sheet ---------- */
+
+@media (max-width: 767px) {
+    .panel {
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        max-height: 58vh;
+        max-height: 58dvh;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 16px 16px 0 0;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .panel-head { position: relative; padding-top: 16px; }
+    .brand small { display: none; }
+
+    .panel-head::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 50%;
+        width: 36px;
+        height: 4px;
+        margin-left: -18px;
+        border-radius: 2px;
+        background: var(--field-line);
+    }
+
+    .maplibregl-ctrl-bottom-left,
+    .maplibregl-ctrl-bottom-right { bottom: var(--sheet-h, 0px); }
+
+    /* Bei aufgeklapptem Sheet: Maßstab/Quellen ausblenden, sie würden die Kartenknöpfe überdecken */
+    body.sheet-open .maplibregl-ctrl-bottom-left,
+    body.sheet-open .maplibregl-ctrl-bottom-right { display: none; }
+
+    .layer-menu { right: calc(100% + 8px); width: 240px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .icon-btn svg, .switch, .switch::after { transition: none; }
+    .spinner, .btn.busy::after { animation-duration: 2s; }
+}
+
+/* ---------- Einstellungen als eigenes Fenster ---------- */
+
+.dlg {
+    width: min(440px, calc(100vw - 24px));
+    max-height: min(720px, calc(100dvh - 24px));
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--bg-solid);
+    color: var(--fg);
+    box-shadow: var(--shadow);
+    font-size: 14px;
+    overflow: hidden;
+}
+
+.dlg[open] { display: flex; flex-direction: column; }
+.dlg::backdrop { background: rgba(10, 20, 32, 0.45); backdrop-filter: blur(2px); }
+
+.dlg-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 8px 6px 18px;
+    flex: none;
+}
+
+.dlg-head h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.dlg-body { padding: 0 18px 18px; overflow-y: auto; overscroll-behavior: contain; }
+
+@media (max-width: 767px) {
+    .dlg {
+        width: 100vw;
+        max-width: 100vw;
+        max-height: 92dvh;
+        margin: auto 0 0;
+        border-radius: 16px 16px 0 0;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .dlg[open] { animation: dlg-in 0.16s ease-out; }
+    @keyframes dlg-in { from { opacity: 0; transform: translateY(8px); } }
+}
+</style>
+</head>
+
+<body>
+
+<div id="map" role="application" aria-label="Karte"></div>
+
+<div class="measure-box" id="measureBox" role="status" aria-live="polite" hidden></div>
+
+<aside class="panel" id="panel" aria-label="Suche und Pegel">
+
+    <header class="panel-head">
+        <div class="brand"><img class="brand-icon" src="icon.svg" alt="" width="26" height="26" onerror="this.remove()">FlussKM <small>Flusskilometer &amp; Pegel</small></div>
+        <button class="icon-btn" id="geraetBtn" type="button" aria-haspopup="dialog" title="Startort für dieses Gerät" aria-label="Startort für dieses Gerät">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+        <button class="icon-btn" id="toggle" type="button" aria-expanded="true" aria-controls="panelBody" title="Panel ein-/ausklappen">
+            <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>
+        </button>
+    </header>
+
+    <nav class="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" data-tab="km" aria-selected="true">Kilometer</button>
+        <button class="tab" type="button" role="tab" data-tab="ort" aria-selected="false">Ort</button>
+        <button class="tab" type="button" role="tab" data-tab="pegel" aria-selected="false">Pegel <span class="badge" id="pegelCount">–</span></button>
+    </nav>
+
+    <div class="panel-body" id="panelBody">
+
+        <section data-pane="km" role="tabpanel">
+            <div id="firstRun"></div>
+            <form id="kmForm" autocomplete="off">
+                <label class="field" for="river">Fluss</label>
+                <select id="river"></select>
+
+                <label class="field" for="km">Kilometer</label>
+                <div class="row">
+                    <input type="text" id="km" inputmode="decimal" enterkeyhint="search" placeholder="z. B. 325 oder 325,4">
+                    <button class="btn" id="kmSubmit" type="submit">Suchen</button>
+                </div>
+            </form>
+            <div id="kmResult"></div>
+            <p class="hint" id="kmHint">Kilometermarken aus OpenStreetMap, abgeglichen mit der Kilometrierung der Pegel.</p>
+        </section>
+
+        <section data-pane="ort" role="tabpanel" hidden>
+            <form id="ortForm" autocomplete="off">
+                <label class="field" for="ort">Ort oder Adresse</label>
+                <div class="row">
+                    <input type="text" id="ort" enterkeyhint="search" placeholder="Stadt, Gemeinde oder Adresse">
+                    <button class="btn" id="ortSubmit" type="submit">Suchen</button>
+                </div>
+            </form>
+            <div id="grenzeInfo"></div>
+            <div id="ortResultsHead"></div>
+            <ul class="list" id="ortResults"></ul>
+        </section>
+
+
+        <section data-pane="pegel" role="tabpanel" hidden>
+            <div class="pegel-meta" id="pegelMetaRow">
+                <span id="pegelMeta">Pegeldaten werden geladen …</span>
+                <button class="copy-btn" id="pegelReload" type="button" title="Aktualisieren" aria-label="Pegeldaten aktualisieren">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+                </button>
+            </div>
+            <ul class="list" id="pegelList"></ul>
+            <div class="legend" id="legend"></div>
+            <p class="hint">Quelle: PEGELONLINE (WSV). Liste zeigt den aktuellen Kartenausschnitt.</p>
+        </section>
+
+    </div>
+
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+
+</aside>
+
+<dialog class="dlg" id="settingsDlg" aria-labelledby="settingsTitle">
+    <div class="dlg-head">
+        <h2 id="settingsTitle">Start auf diesem Gerät</h2>
+        <button class="icon-btn" type="button" id="settingsClose" title="Schließen" aria-label="Schließen">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+    </div>
+    <div class="dlg-body">
+            <p class="hint" style="margin-top:0">Gilt nur für diesen Browser. Neue Geräte starten mit der Deutschlandansicht.</p>
+            <form id="geraetForm" autocomplete="off">
+                <label class="field" for="gFluss">Fluss</label>
+                <select id="gFluss"></select>
+
+                <label class="field" for="gStadt">Stadt / Ort beim Start</label>
+                <input type="text" id="gStadt" placeholder="leer = nicht auf einen Ort zoomen">
+
+                <label class="field" for="gKm">Kilometer <span style="font-weight:400;color:var(--muted)">– optional, statt Stadt</span></label>
+                <input type="text" id="gKm" inputmode="decimal" placeholder="z. B. 325">
+
+                <label class="field" for="gKarte">Karte</label>
+                <select id="gKarte"></select>
+
+                <button class="btn-text" type="button" id="gAktuell" style="margin-top:8px;padding:0">Aktuelle Auswahl übernehmen</button>
+                <button class="btn" type="submit" style="width:100%;margin-top:10px">Speichern</button>
+            </form>
+            <div id="geraetMsg"></div>
+            <p class="hint" id="geraetState"></p>
+            <button class="btn-text danger" type="button" id="gReset" style="padding:0">Einstellung dieses Geräts löschen</button>
+    </div>
+</dialog>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   Konfiguration
+   ===================================================================== */
+
+// Bounding Boxes im Format [süd, west, nord, ost].
+// pegelonline: Gewässer-Kurzname(n) bei PEGELONLINE (für Plausibilisierung).
+const DEFAULT_RIVERS = [
+    { name: 'Rhein',  pegelonline: ['RHEIN'],  bbox: [46.4, 3.9, 52.2, 10.0] },
+    { name: 'Elbe',   pegelonline: ['ELBE'],   bbox: [49.5, 8.4, 54.1, 16.0] },
+    { name: 'Donau',  pegelonline: ['DONAU'],  bbox: [47.3, 8.0, 49.2, 17.2] },
+    { name: 'Weser',  pegelonline: ['WESER'],  bbox: [51.3, 8.0, 53.95, 10.0] },
+    { name: 'Main',   pegelonline: ['MAIN'],   bbox: [49.6, 8.1, 50.35, 11.7] },
+    { name: 'Mosel',  pegelonline: ['MOSEL'],  bbox: [48.9, 5.8, 50.45, 7.7] },
+    { name: 'Neckar', pegelonline: ['NECKAR'], bbox: [48.6, 8.4, 49.6, 9.5] },
+    { name: 'Saale',  pegelonline: ['SAALE'],  bbox: [50.2, 11.0, 52.0, 12.2] },
+    { name: 'Oder',   pegelonline: ['ODER'],   bbox: [50.0, 14.0, 53.6, 18.4] }
+];
+
+// Feste Vorgaben. Der Startort wird pro Gerät im localStorage gespeichert (Zahnrad im Panel).
+const DEFAULTS = {
+    standardFluss: '',
+    standardKm: null,
+    standardStadt: '',
+    standardKarte: 'standard',
+    seezeichen: true,
+    pegel: {
+        anzeigen: true,
+        aktualisierungMinuten: 5,
+        beschriftungAbZoom: 10
+    },
+    ortssucheLaender: 'de',
+    overpassServer: [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.private.coffee/api/interpreter'
+    ],
+    startansicht: { center: [10.45, 51.16], zoom: 5.6 }
+};
+
+function buildConfig() {
+    const c = {
+        ...DEFAULTS,
+        pegel: { ...DEFAULTS.pegel },
+        startansicht: { ...DEFAULTS.startansicht }
+    };
+    c.rivers = DEFAULT_RIVERS.map(r => ({ ...r }));
+
+    // Vorgabe für neue Geräte (und nach „Zurücksetzen“)
+    c.vorgabe = { fluss: c.standardFluss || '', stadt: c.standardStadt || '', km: c.standardKm, karte: c.standardKarte };
+
+    // Start-Einstellung dieses Geräts (localStorage)
+    c.geraet = loadDeviceStart();
+    if (c.geraet && c.geraet.saved) {
+        c.standardFluss = c.geraet.fluss || '';
+        c.standardStadt = c.geraet.stadt || '';
+        c.standardKm = c.geraet.km ?? null;
+        if (c.geraet.karte) c.standardKarte = c.geraet.karte;
+    }
+
+    // URL-Parameter überschreiben beides: ?fluss=Rhein&km=500&ort=Koblenz&karte=nacht
+    const p = new URLSearchParams(location.search);
+    c.fromUrl = ['fluss', 'km', 'ort', 'karte', 'marker'].some(k => p.has(k));
+    if (p.has('fluss')) c.standardFluss = p.get('fluss');
+    if (p.has('km')) c.standardKm = p.get('km');
+    if (p.has('ort')) c.standardStadt = p.get('ort');
+    if (p.has('karte')) c.standardKarte = p.get('karte');
+
+    // ?marker=50.3569,7.6063 – geteilter Positionsmarker
+    c.startMarker = null;
+    const mk = (p.get('marker') || '').split(',').map(Number);
+    if (mk.length === 2 && Math.abs(mk[0]) <= 90 && Math.abs(mk[1]) <= 180 && mk.every(Number.isFinite)) {
+        c.startMarker = { lat: mk[0], lon: mk[1] };
+    }
+
+    return c;
+}
+
+/* ---------- Start-Einstellung pro Gerät ----------
+   localStorage statt Cookie: wird nicht an Server gesendet, funktioniert auch unter file://
+   und wird von Safari nicht nach 7 Tagen gelöscht wie per JavaScript gesetzte Cookies.
+   null = neues Gerät, { dismissed: true } = Vorgabe behalten, { saved: true, … } = eigene Einstellung */
+
+const DEVICE_KEY = 'flusskm.geraet.v1';
+
+function loadDeviceStart() {
+    try {
+        const v = JSON.parse(localStorage.getItem(DEVICE_KEY) || 'null');
+        return v && typeof v === 'object' ? v : null;
+    } catch {
+        return null;
+    }
+}
+
+function saveDeviceStart(v) {
+    try { localStorage.setItem(DEVICE_KEY, JSON.stringify(v)); return true; } catch { return false; }
+}
+
+function clearDeviceStart() {
+    try { localStorage.removeItem(DEVICE_KEY); return true; } catch { return false; }
+}
+
+const CFG = buildConfig();
+
+const PEGEL_API = 'https://www.pegelonline.wsv.de/webservices/rest-api/v2';
+const PEGEL_WEB = 'https://pegelonline.wsv.de/gast/stammdaten?pegelnr=';
+
+/* =====================================================================
+   Kartenlayer
+   ===================================================================== */
+
+// CARTO-Basiskarten als Vektor-Stile (die CARTO-Rasterkacheln verlangen inzwischen einen API-Key).
+const cartoStyle = name => `https://basemaps.cartocdn.com/gl/${name}-gl-style/style.json`;
+
+const ATTR_OSM = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende';
+
+const OSM_STYLE = {
+    version: 8,
+    sources: {
+        osm: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            maxzoom: 19,
+            attribution: ATTR_OSM
+        }
+    },
+    layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+};
+
+// Kontrastvariante: Positron mit kräftigem Wasser, dunklen Straßenrändern und schwarzer Schrift.
+function applyKontrast() {
+    const set = (id, prop, val) => { try { map.setPaintProperty(id, prop, val); } catch { /* Layer ohne diese Eigenschaft */ } };
+    for (const l of map.getStyle().layers) {
+        const id = l.id;
+        if (l.type === 'background') set(id, 'background-color', '#ffffff');
+        else if (l.type === 'fill' && id === 'water') set(id, 'fill-color', '#7db8ea');
+        else if (l.type === 'line' && id === 'waterway') set(id, 'line-color', '#3d8ad6');
+        else if (l.type === 'fill' && id.startsWith('building')) set(id, 'fill-color', '#c4c4c4');
+        else if (l.type === 'line' && /_case/.test(id)) set(id, 'line-color', '#3b3b3b');
+        else if (l.type === 'line' && /path/.test(id)) set(id, 'line-color', '#6d6d6d');
+        else if (l.type === 'line' && /rail(?!_dash)/.test(id)) set(id, 'line-color', '#4f4f4f');
+        else if (l.type === 'line' && /boundary/.test(id)) set(id, 'line-color', '#a36a72');
+        else if (l.type === 'symbol') {
+            set(id, 'text-color', /water/.test(id) ? '#0f4f8f' : '#111111');
+            set(id, 'text-halo-color', '#ffffff');
+            set(id, 'text-halo-width', 1.6);
+        }
+    }
+}
+
+const BASEMAPS = [
+    { id: 'nacht',    name: 'Nacht',    hint: 'CARTO Dark Matter',          style: cartoStyle('dark-matter'), dark: true },
+    { id: 'standard', name: 'Standard', hint: 'CARTO Voyager (OSM-Daten)',  style: cartoStyle('voyager') },
+    { id: 'hell',     name: 'Hell',     hint: 'CARTO Positron',             style: cartoStyle('positron') },
+    { id: 'kontrast', name: 'Kontrast', hint: 'CARTO Positron, kontrastverstärkt', style: cartoStyle('positron'), after: applyKontrast },
+    { id: 'osm',      name: 'OSM',      hint: 'OpenStreetMap Standard',     style: OSM_STYLE }
+];
+
+function basemapById(id) {
+    const key = String(id || '').toLowerCase();
+    return BASEMAPS.find(b => b.id === key) || BASEMAPS.find(b => b.id === 'standard');
+}
+
+/* =====================================================================
+   Pegelstatus
+   ===================================================================== */
+
+const STATE = {
+    hsw:     { color: '#c62828', label: 'über HSW (Schifffahrt eingeschränkt)', short: 'über HSW' },
+    high:    { color: '#ef6c00', label: 'über MHW (Hochwasser)', short: 'über MHW' },
+    normal:  { color: '#1e88e5', label: 'zwischen MNW und MHW', short: 'normal' },
+    low:     { color: '#e0a800', label: 'unter MNW (Niedrigwasser)', short: 'unter MNW' },
+    unknown: { color: '#6f8494', label: 'ohne Einstufung', short: 'ohne Einstufung' },
+    stale:   { color: '#b4bfc8', label: 'veraltet / kein Messwert', short: 'veraltet' }
+};
+
+const MNW_TEXT = {
+    low: 'unter MNW (Niedrigwasser)',
+    normal: 'zwischen MNW und MHW',
+    high: 'über MHW (Hochwasser)',
+    commented: 'kommentiert',
+    'out-dated': 'veraltet',
+    unknown: 'keine Einstufung'
+};
+
+const HSW_TEXT = {
+    normal: 'zwischen NSW und HSW',
+    high: 'über HSW (Höchster Schifffahrtswasserstand)',
+    low: 'unter NSW',
+    commented: 'kommentiert',
+    'out-dated': 'veraltet',
+    unknown: 'keine Einstufung'
+};
+
+const STALE_MINUTES = 180;
+
+/* =====================================================================
+   Hilfsfunktionen
+   ===================================================================== */
+
+const $ = sel => document.querySelector(sel);
+
+const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[ch]));
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function fmtNum(v, maxDigits = 1) {
+    return Number(v).toLocaleString('de-DE', { maximumFractionDigits: maxDigits });
+}
+
+function fmtKm(v) {
+    return Number(v).toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+}
+
+function fmtDist(km) {
+    return km < 1 ? `${Math.round(km * 1000)} m` : `${fmtNum(km, 1)} km`;
+}
+
+function fmtTime(d) {
+    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtAge(minutes) {
+    if (minutes < 1) return 'gerade eben';
+    if (minutes < 60) return `vor ${Math.round(minutes)} min`;
+    if (minutes < 48 * 60) return `vor ${fmtNum(minutes / 60, 0)} h`;
+    return `vor ${fmtNum(minutes / 1440, 0)} Tagen`;
+}
+
+// Gewässer- und Pegelnamen kommen oft in GROSSBUCHSTABEN.
+function niceName(s) {
+    s = String(s || '').trim();
+    if (!s || s !== s.toUpperCase()) return s;
+    return s.toLowerCase().replace(/(^|[\s\-(./])(\p{L})/gu, (m, p, ch) => p + ch.toUpperCase());
+}
+
+function parseKmInput(v) {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim().replace(/\s/g, '').replace(',', '.');
+    if (!/^\d+(\.\d+)?$/.test(s)) return null;
+    return parseFloat(s);
+}
+
+function distKm(a, b) {
+    const R = 6371.0088;
+    const rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad;
+    const dLon = (b.lon - a.lon) * rad;
+    const h = Math.sin(dLat / 2) ** 2 +
+        Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function lerpPos(a, b, f) {
+    return { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
+}
+
+let statusTimer = null;
+function setStatus(text, { error = false, clearAfter = 0 } = {}) {
+    const el = $('#status');
+    el.textContent = text || '';
+    el.classList.toggle('err', error);
+    clearTimeout(statusTimer);
+    if (clearAfter) statusTimer = setTimeout(() => { el.textContent = ''; }, clearAfter);
+}
+
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch { ok = false; }
+        ta.remove();
+        return ok;
+    }
+}
+
+/* =====================================================================
+   Panel (Desktop: Seitenpanel, Handy: Bottom Sheet)
+   ===================================================================== */
+
+const panel = $('#panel');
+const mqMobile = window.matchMedia('(max-width: 767px)');
+const isMobile = () => mqMobile.matches;
+
+function setCollapsed(collapsed) {
+    panel.classList.toggle('collapsed', collapsed);
+    document.body.classList.toggle('sheet-open', !collapsed);
+    $('#toggle').setAttribute('aria-expanded', String(!collapsed));
+}
+
+function setTab(name) {
+    document.querySelectorAll('.tab').forEach(t =>
+        t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+    document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== name; });
+    setCollapsed(false);
+}
+
+$('#toggle').addEventListener('click', () => setCollapsed(!panel.classList.contains('collapsed')));
+
+document.querySelectorAll('.tab').forEach(t =>
+    t.addEventListener('click', () => {
+        const active = t.getAttribute('aria-selected') === 'true';
+        if (active && !panel.classList.contains('collapsed') && isMobile()) setCollapsed(true);
+        else setTab(t.dataset.tab);
+    }));
+
+if (isMobile()) setCollapsed(true);
+
+function updateSheetHeight() {
+    document.documentElement.style.setProperty('--sheet-h', isMobile() ? `${panel.offsetHeight}px` : '0px');
+}
+
+if ('ResizeObserver' in window) new ResizeObserver(updateSheetHeight).observe(panel);
+mqMobile.addEventListener?.('change', updateSheetHeight);
+updateSheetHeight();
+
+// Abstand, damit Ziele nicht unter dem Panel landen.
+function viewPadding() {
+    if (isMobile()) {
+        return { top: 60, right: 30, left: 30, bottom: Math.min(panel.offsetHeight, window.innerHeight * 0.65) + 30 };
+    }
+    return { top: 40, right: 70, bottom: 40, left: panel.offsetWidth + 40 };
+}
+
+/* =====================================================================
+   Karte
+   ===================================================================== */
+
+const initialBase = basemapById(CFG.standardKarte);
+document.documentElement.dataset.ui = initialBase.dark ? 'dark' : 'light';
+
+const map = new maplibregl.Map({
+    container: 'map',
+    center: CFG.startansicht.center,
+    zoom: CFG.startansicht.zoom,
+    maxZoom: 19,
+    // Gesten: Ziehen, Pinch-Zoom, Drehen mit zwei Fingern, Doppeltippen (rein),
+    // Zwei-Finger-Tippen (raus), Doppeltippen+Ziehen (Zoom). Neigen ist bewusst aus.
+    pitchWithRotate: false,
+    touchPitch: false,
+    bearingSnap: 10, // kleine Drehungen beim Zoomen rasten auf Norden ein
+    attributionControl: false,
+    style: initialBase.style
+});
+
+
+const ui = {
+    base: initialBase.id,
+    seezeichen: !!CFG.seezeichen,
+    pegel: !!CFG.pegel.anzeigen,
+    grenze: true
+};
+
+class LayerControl {
+    onAdd() {
+        const el = document.createElement('div');
+        el.className = 'maplibregl-ctrl maplibregl-ctrl-group layer-ctrl';
+        el.innerHTML = `
+            <button type="button" class="ctrl-svg" aria-label="Kartenlayer wählen" title="Kartenlayer" aria-expanded="false">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5" opacity=".55"/>
+                </svg>
+            </button>
+            <div class="layer-menu" hidden>
+                <div class="lm-h">Karte</div>
+                ${BASEMAPS.map(b => `
+                    <label><input type="radio" name="basemap" value="${b.id}" ${b.id === ui.base ? 'checked' : ''}>
+                        <span>${esc(b.name)}<small>${esc(b.hint)}</small></span></label>`).join('')}
+                <hr>
+                <div class="lm-h">Ebenen</div>
+                <label><input type="checkbox" data-ov="seezeichen" ${ui.seezeichen ? 'checked' : ''}>
+                    <span>Seezeichen<small>OpenSeaMap, ab Zoom 9</small></span></label>
+                <label><input type="checkbox" data-ov="pegel" ${ui.pegel ? 'checked' : ''}>
+                    <span>Pegelstationen<small>PEGELONLINE, live</small></span></label>
+                <label class="disabled" data-grenze-label><input type="checkbox" data-ov="grenze" disabled>
+                    <span>Gebietsgrenze<small data-grenze-hint>erscheint nach einer Ortssuche</small></span></label>
+            </div>`;
+
+        const btn = el.querySelector('button');
+        const menu = el.querySelector('.layer-menu');
+        const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+
+        btn.addEventListener('click', ev => {
+            ev.stopPropagation();
+            menu.hidden = !menu.hidden;
+            btn.setAttribute('aria-expanded', String(!menu.hidden));
+        });
+        menu.addEventListener('click', ev => ev.stopPropagation());
+        document.addEventListener('click', close);
+        document.addEventListener('keydown', ev => { if (ev.key === 'Escape') close(); });
+
+        menu.addEventListener('change', ev => {
+            const t = ev.target;
+            if (t.name === 'basemap') applyBasemap(t.value);
+            if (t.dataset.ov === 'seezeichen') setSeezeichen(t.checked);
+            if (t.dataset.ov === 'pegel') setPegelVisible(t.checked);
+            if (t.dataset.ov === 'grenze') setBoundaryVisible(t.checked);
+        });
+
+        this.el = el;
+        return el;
+    }
+
+    onRemove() { this.el.remove(); }
+}
+
+map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false }), 'top-right');
+map.addControl(new LayerControl(), 'top-right');
+
+// Einnorden: Kompass zeigt die Drehung an und setzt per Tipp auf Norden zurück.
+(() => {
+    const compass = document.querySelector('.maplibregl-ctrl-compass');
+    if (compass) {
+        compass.title = 'Einnorden (Norden nach oben)';
+        compass.setAttribute('aria-label', 'Einnorden');
+    }
+    const update = () => document.body.classList.toggle('rotated', Math.abs(map.getBearing()) > 0.5);
+    map.on('rotate', update);
+    map.on('load', update);
+})();
+map.addControl(new maplibregl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: true },
+    trackUserLocation: true
+}), 'top-right');
+map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 120 }), 'bottom-right');
+
+// Basiskarte wechseln. Seezeichen und Pegel werden bei jedem 'style.load' neu angelegt.
+function applyBasemap(id) {
+    const b = basemapById(id);
+    if (b.id === ui.base) return;
+    ui.base = b.id;
+    document.documentElement.dataset.ui = b.dark ? 'dark' : 'light';
+    map.setStyle(b.style, { diff: false });
+    const radio = document.querySelector(`.layer-menu input[name="basemap"][value="${b.id}"]`);
+    if (radio) radio.checked = true;
+}
+
+function addOverlays() {
+    const b = basemapById(ui.base);
+    if (b.after) b.after();
+
+
+    // Grenze der Gebietskörperschaft aus der Ortssuche (unter Seezeichen und Pegeln)
+    if (!map.getSource('grenze')) {
+        map.addSource('grenze', { type: 'geojson', data: boundaryData() });
+        map.addLayer({
+            id: 'grenze-fill',
+            type: 'fill',
+            source: 'grenze',
+            layout: { visibility: ui.grenze ? 'visible' : 'none' },
+            paint: { 'fill-color': '#8e24aa', 'fill-opacity': 0.06 }
+        });
+        map.addLayer({
+            id: 'grenze-casing',
+            type: 'line',
+            source: 'grenze',
+            layout: { 'line-join': 'round', visibility: ui.grenze ? 'visible' : 'none' },
+            paint: { 'line-color': b.dark ? '#000000' : '#ffffff', 'line-width': 5.5, 'line-opacity': 0.75 }
+        });
+        map.addLayer({
+            id: 'grenze-line',
+            type: 'line',
+            source: 'grenze',
+            layout: { 'line-join': 'round', visibility: ui.grenze ? 'visible' : 'none' },
+            paint: { 'line-color': b.dark ? '#e040fb' : '#8e24aa', 'line-width': 2.5, 'line-dasharray': [3, 1.5] }
+        });
+    }
+
+    if (!map.getSource('openseamap')) {
+        map.addSource('openseamap', {
+            type: 'raster',
+            tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            minzoom: 9,
+            maxzoom: 18,
+            attribution: '© <a href="https://www.openseamap.org" target="_blank" rel="noopener">OpenSeaMap</a>'
+        });
+        map.addLayer({
+            id: 'openseamap',
+            type: 'raster',
+            source: 'openseamap',
+            layout: { visibility: ui.seezeichen ? 'visible' : 'none' }
+        });
+    }
+
+    if (!map.getSource('pegel')) addPegelLayers();
+
+    if (!map.getSource('messen')) {
+        map.addSource('messen', { type: 'geojson', data: measureData() });
+        map.addLayer({
+            id: 'messen-casing',
+            type: 'line',
+            source: 'messen',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.8 }
+        });
+        map.addLayer({
+            id: 'messen-line',
+            type: 'line',
+            source: 'messen',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#f4511e', 'line-width': 3, 'line-dasharray': [2, 1.2] }
+        });
+    }
+}
+
+function setSeezeichen(on) {
+    ui.seezeichen = on;
+    if (map.getLayer('openseamap')) map.setLayoutProperty('openseamap', 'visibility', on ? 'visible' : 'none');
+}
+
+/* =====================================================================
+   Ergebnis-Marker (Kilometer / Ort)
+   ===================================================================== */
+
+let resultMarker = null;
+
+function setResultMarker(lat, lon, html, color, { detailsTab = null } = {}) {
+    if (resultMarker) resultMarker.remove();
+    const full = `${html}
+        <div class="pp-foot">
+            ${detailsTab ? `<button class="btn-text mobile-only" type="button" data-details="${detailsTab}">Details</button>` : ''}
+            <button class="btn-text danger" type="button" data-result-remove>Entfernen</button>
+        </div>`;
+    const popup = new maplibregl.Popup({
+        offset: 30,
+        maxWidth: '300px',
+        focusAfterOpen: false,
+        anchor: isMobile() ? 'bottom' : undefined
+    }).setHTML(full);
+    popup.on('open', () => ensurePopupVisible(popup));
+    resultMarker = new maplibregl.Marker({ color: color || '#2468a8' })
+        .setLngLat([lon, lat])
+        .setPopup(popup)
+        .addTo(map);
+    resultMarker.togglePopup();
+}
+
+function removeResultMarker({ quiet = false } = {}) {
+    if (!resultMarker) return;
+    resultMarker.remove();
+    resultMarker = null;
+    if (!quiet) setStatus('Marker entfernt', { clearAfter: 2500 });
+}
+
+// Karte verschieben, bis ein Popup nicht mehr unter Panel, Bottom Sheet oder Bildrand liegt.
+function ensurePopupVisible(popup) {
+    // Während eines Kartenflugs warten – panBy würde den Flug abbrechen.
+    if (map.isMoving()) { map.once('moveend', () => ensurePopupVisible(popup)); return; }
+    requestAnimationFrame(() => {
+        if (!popup || !popup.isOpen()) return;
+        const box = popup.getElement().getBoundingClientRect();
+        const mapBox = map.getContainer().getBoundingClientRect();
+        const p = panel.getBoundingClientRect();
+        const margin = 12;
+        const top = mapBox.top + margin;
+        let bottom = mapBox.bottom - margin;
+        let left = mapBox.left + margin;
+        const right = mapBox.right - 60; // Platz für die Kartenknöpfe
+        if (isMobile()) bottom = Math.min(bottom, p.top - margin);
+        else left = Math.max(left, p.right + margin);
+
+        let dx = 0, dy = 0;
+        if (box.top < top) dy = box.top - top;
+        else if (box.bottom > bottom) dy = Math.min(box.bottom - bottom, box.top - top);
+        if (box.left < left) dx = box.left - left;
+        else if (box.right > right) dx = Math.min(box.right - right, box.left - left);
+        if (dx || dy) map.panBy([dx, dy], { duration: 300 });
+    });
+}
+
+document.addEventListener('click', ev => {
+    const d = ev.target.closest('[data-details]');
+    if (d) setTab(d.dataset.details);
+});
+
+document.addEventListener('click', ev => {
+    if (ev.target.closest('[data-result-remove]')) removeResultMarker();
+});
+
+/* =====================================================================
+   Pegelstationen (PEGELONLINE)
+   ===================================================================== */
+
+let stations = [];
+let visibleStations = [];
+let stationsLoadedAt = null;
+let stationsLoading = false;
+let resolveStationsReady;
+const stationsReady = new Promise(r => { resolveStationsReady = r; });
+
+const TEMP_STALE_MINUTES = 360;
+
+function normalizeStation(s) {
+    if (!Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) return null;
+    const ts = (s.timeseries || []).find(t => t.shortname === 'W');
+    if (!ts) return null; // nur Stationen mit Wasserstand
+
+    // Wassertemperatur (Zeitreihe WT), an rund 120 Pegeln vorhanden
+    const wt = (s.timeseries || []).find(t => t.shortname === 'WT');
+    const wm = wt && wt.currentMeasurement;
+    const tempTime = wm && wm.timestamp ? new Date(wm.timestamp) : null;
+    const temp = wm && Number.isFinite(wm.value) ? wm.value : null;
+    const tempStale = !tempTime || (Date.now() - tempTime.getTime()) / 60000 > TEMP_STALE_MINUTES;
+    const m = ts && ts.currentMeasurement;
+    const time = m && m.timestamp ? new Date(m.timestamp) : null;
+    const ageMin = time ? (Date.now() - time.getTime()) / 60000 : Infinity;
+
+    let state = 'unknown';
+    if (!m || !Number.isFinite(m.value) || ageMin > STALE_MINUTES ||
+        ['out-dated', 'commented'].includes(m.stateMnwMhw)) {
+        state = 'stale';
+    } else if (m.stateNswHsw === 'high') {
+        state = 'hsw';
+    } else if (['high', 'normal', 'low'].includes(m.stateMnwMhw)) {
+        state = m.stateMnwMhw;
+    }
+
+    return {
+        uuid: s.uuid,
+        number: s.number,
+        name: niceName(s.longname || s.shortname),
+        water: niceName((s.water && (s.water.longname || s.water.shortname)) || ''),
+        waterShort: String((s.water && s.water.shortname) || '').toUpperCase(),
+        km: Number.isFinite(s.km) ? s.km : null,
+        lat: s.latitude,
+        lon: s.longitude,
+        agency: niceName(s.agency || ''),
+        unit: (ts && ts.unit) || 'cm',
+        value: m && Number.isFinite(m.value) ? m.value : null,
+        time,
+        stateMnwMhw: m ? m.stateMnwMhw : null,
+        stateNswHsw: m ? m.stateNswHsw : null,
+        gaugeZero: ts && ts.gaugeZero ? ts.gaugeZero : null,
+        state,
+        temp,
+        tempTime,
+        tempStale,
+        tempUnit: (wt && wt.unit) || '°C'
+    };
+}
+
+async function loadStations() {
+    if (stationsLoading) return;
+    stationsLoading = true;
+    $('#pegelReload').disabled = true;
+    try {
+        // Ohne Filter "timeseries=W", sonst fehlen die übrigen Zeitreihen (z. B. Wassertemperatur WT).
+        const url = `${PEGEL_API}/stations.json?includeTimeseries=true&includeCurrentMeasurement=true`;
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        stations = data.map(normalizeStation).filter(Boolean);
+        stationsLoadedAt = new Date();
+        updateVisibleStations();
+    } catch (e) {
+        console.error('PEGELONLINE', e);
+        setPegelMeta('Pegeldaten nicht erreichbar – neuer Versuch in 30 s', true);
+        setTimeout(loadStations, 30000);
+    } finally {
+        stationsLoading = false;
+        $('#pegelReload').disabled = false;
+        resolveStationsReady();
+    }
+}
+
+function setPegelMeta(text, error = false) {
+    $('#pegelMeta').textContent = text;
+    $('#pegelMetaRow').classList.toggle('err', error);
+}
+
+function stationsGeoJSON(list) {
+    return {
+        type: 'FeatureCollection',
+        features: list.map(s => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+            properties: { uuid: s.uuid, state: s.state }
+        }))
+    };
+}
+
+function addPegelLayers() {
+    const vis = ui.pegel ? 'visible' : 'none';
+    const dark = basemapById(ui.base).dark;
+
+    map.addSource('pegel', { type: 'geojson', data: stationsGeoJSON(visibleStations) });
+
+    map.addLayer({
+        id: 'pegel-selected',
+        type: 'circle',
+        source: 'pegel',
+        filter: ['==', ['get', 'uuid'], selectedUuid || ''],
+        layout: { visibility: vis },
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 11, 12, 16],
+            'circle-color': '#0b5cad',
+            'circle-opacity': 0.25,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#0b5cad'
+        }
+    });
+
+    map.addLayer({
+        id: 'pegel-circle',
+        type: 'circle',
+        source: 'pegel',
+        layout: { visibility: vis },
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 4.5, 9, 6.5, 13, 9],
+            'circle-color': ['match', ['get', 'state'],
+                ...Object.entries(STATE).flatMap(([k, v]) => [k, v.color]),
+                STATE.unknown.color],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, 1.2, 12, 2],
+            'circle-stroke-color': dark ? '#0e1116' : '#ffffff'
+        }
+    });
+
+    // Unsichtbare, größere Trefferfläche für Touch-Bedienung.
+    map.addLayer({
+        id: 'pegel-hit',
+        type: 'circle',
+        source: 'pegel',
+        layout: { visibility: vis },
+        paint: { 'circle-radius': 16, 'circle-color': '#000000', 'circle-opacity': 0 }
+    });
+}
+
+// Ereignisse an Layer-IDs gebunden – bleiben über Stilwechsel hinweg gültig.
+function bindPegelEvents() {
+    map.on('click', 'pegel-hit', e => {
+        if (pinMode || measureMode || Date.now() - lastPinPlaced < 400) return; // Klick galt Marker/Messung
+        const f = e.features && e.features[0];
+        if (f) openStation(f.properties.uuid);
+    });
+    map.on('mouseenter', 'pegel-hit', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'pegel-hit', () => { map.getCanvas().style.cursor = ''; });
+}
+
+function setPegelVisible(on) {
+    ui.pegel = on;
+    for (const id of ['pegel-selected', 'pegel-circle', 'pegel-hit']) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    }
+    if (!on && stationPopup) stationPopup.remove();
+    updateVisibleStations();
+}
+
+function updateVisibleStations() {
+    const b = map.getBounds();
+    visibleStations = stations.filter(s => b.contains([s.lon, s.lat]));
+    const src = map.getSource('pegel');
+    if (src) src.setData(stationsGeoJSON(visibleStations));
+    $('#pegelCount').textContent = stationsLoadedAt ? String(visibleStations.length) : '–';
+    if (stationsLoadedAt) {
+        setPegelMeta(`Stand ${stationsLoadedAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} · ` +
+            `${visibleStations.length} von ${stations.length} Pegeln im Ausschnitt`);
+    }
+    renderPegelList();
+    updateLabels();
+}
+
+function valueText(s) {
+    return s.value === null ? '–' : `${fmtNum(s.value)} ${esc(s.unit)}`;
+}
+
+// Aktuelle Wassertemperatur oder '' (veraltete Werte nur im Popup)
+function tempText(s) {
+    return s.temp !== null && !s.tempStale ? `${fmtNum(s.temp, 1)} ${s.tempUnit}` : '';
+}
+
+function selectedRiver() {
+    return CFG.rivers[Number($('#river').value)] || null;
+}
+
+function renderPegelList() {
+    const ul = $('#pegelList');
+    if (!ui.pegel) {
+        ul.innerHTML = '<li class="empty">Pegelstationen sind ausgeblendet (Kartenlayer-Menü).</li>';
+        return;
+    }
+    if (!stationsLoadedAt) {
+        ul.innerHTML = '';
+        return;
+    }
+    if (!visibleStations.length) {
+        ul.innerHTML = '<li class="empty">Keine Pegel im Kartenausschnitt.</li>';
+        return;
+    }
+
+    const river = selectedRiver();
+    const prefer = new Set(river ? river.pegelonline : []);
+    const items = [...visibleStations].sort((a, b) =>
+        (prefer.has(b.waterShort) - prefer.has(a.waterShort)) ||
+        a.water.localeCompare(b.water, 'de') ||
+        ((a.km ?? 0) - (b.km ?? 0)) ||
+        a.name.localeCompare(b.name, 'de'));
+
+    const MAX = 150;
+    ul.innerHTML = items.slice(0, MAX).map(s => `
+        <li><button type="button" data-uuid="${esc(s.uuid)}">
+            <span class="dot" style="background:${STATE[s.state].color}" title="${esc(STATE[s.state].label)}"></span>
+            <span class="li-main">
+                <span class="li-title">${esc(s.name)}</span>
+                <span class="li-sub">${esc(s.water)}${s.km !== null ? ' · km ' + fmtKm(s.km) : ''}</span>
+            </span>
+            <span class="li-val">${valueText(s)}${tempText(s) ? `<span class="li-temp">${esc(tempText(s))}</span>` : ''}</span>
+        </button></li>`).join('') +
+        (items.length > MAX
+            ? `<li class="more">+ ${items.length - MAX} weitere Pegel – zum Eingrenzen hineinzoomen</li>`
+            : '');
+}
+
+$('#pegelList').addEventListener('click', ev => {
+    const btn = ev.target.closest('button[data-uuid]');
+    if (btn) openStation(btn.dataset.uuid, { fly: true });
+});
+
+$('#pegelReload').addEventListener('click', () => loadStations());
+
+$('#legend').innerHTML = Object.values(STATE).map(s =>
+    `<span title="${esc(s.label)}"><i class="dot" style="background:${s.color}"></i>${esc(s.short)}</span>`).join('');
+
+// Wertbeschriftungen ab einem Zoomlevel als HTML-Marker
+const labelMarkers = new Map();
+
+function updateLabels() {
+    const show = ui.pegel && map.getZoom() >= CFG.pegel.beschriftungAbZoom && visibleStations.length <= 80;
+    const list = show ? visibleStations : [];
+    const want = new Set(list.map(s => s.uuid));
+
+    for (const [id, m] of labelMarkers) {
+        if (!want.has(id)) { m.remove(); labelMarkers.delete(id); }
+    }
+
+    for (const s of list) {
+        let m = labelMarkers.get(s.uuid);
+        if (!m) {
+            const el = document.createElement('button');
+            el.type = 'button';
+            el.className = 'pegel-label';
+            el.dataset.uuid = s.uuid;
+            el.addEventListener('click', ev => {
+                ev.stopPropagation();
+                if (pinMode || measureMode) {
+                    const ll = labelMarkers.get(el.dataset.uuid).getLngLat();
+                    if (measureMode) { addMeasurePoint(ll.lat, ll.lng); return; }
+                    setPinMode(false);
+                    placePin(ll.lat, ll.lng);
+                    return;
+                }
+                openStation(el.dataset.uuid);
+            });
+            m = new maplibregl.Marker({ element: el, anchor: 'left', offset: [11, 0] })
+                .setLngLat([s.lon, s.lat])
+                .addTo(map);
+            labelMarkers.set(s.uuid, m);
+        }
+        const el = m.getElement();
+        const t = tempText(s);
+        el.innerHTML = esc(s.value === null ? '–' : `${fmtNum(s.value)} ${s.unit}`) + (t ? ` <span class="t">${esc(t)}</span>` : '');
+        el.style.borderLeftColor = STATE[s.state].color;
+        el.title = `${s.name} (${s.water})`;
+    }
+}
+
+// Popup einer Station
+let stationPopup = null;
+let selectedUuid = null;
+const sparkCache = new Map();
+
+function setSelected(uuid) {
+    selectedUuid = uuid;
+    if (map.getLayer('pegel-selected')) {
+        map.setFilter('pegel-selected', ['==', ['get', 'uuid'], uuid || '']);
+    }
+}
+
+function stationHtml(s) {
+    const st = STATE[s.state];
+    const ageMin = s.time ? (Date.now() - s.time.getTime()) / 60000 : null;
+    let abs = '';
+    if (s.value !== null && s.gaugeZero && Number.isFinite(s.gaugeZero.value) && s.unit === 'cm') {
+        abs = `${fmtNum(s.gaugeZero.value + s.value / 100, 2)} ${esc(s.gaugeZero.unit)}`;
+    }
+    return `
+        <div class="pp-title">${esc(s.name)}</div>
+        <div class="pp-sub">${esc(s.water)}${s.km !== null ? ' · km ' + fmtKm(s.km) : ''}</div>
+        <div class="pp-value">
+            <span class="dot" style="background:${st.color}" title="${esc(st.label)}"></span>
+            <b>${s.value === null ? '–' : fmtNum(s.value)}</b><span>${esc(s.unit)}</span>
+            <span class="pp-trend" data-trend></span>
+        </div>
+        <div class="pp-meta">${s.time ? `${fmtTime(s.time)} · ${fmtAge(ageMin)}` : 'Kein aktueller Messwert'}</div>
+        ${s.temp !== null ? `
+        <div class="pp-temp${s.tempStale ? ' stale' : ''}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 9v7"/></svg>
+            <span>Wasser <b>${fmtNum(s.temp, 1)} ${esc(s.tempUnit)}</b></span>
+            <span class="pp-meta">${s.tempTime ? (s.tempStale ? `veraltet (${fmtTime(s.tempTime)})` : fmtAge((Date.now() - s.tempTime.getTime()) / 60000)) : ''}</span>
+        </div>` : ''}
+        <dl class="pp-state">
+            <dt>MNW/MHW</dt><dd>${esc(MNW_TEXT[s.stateMnwMhw] || '–')}</dd>
+            <dt>NSW/HSW</dt><dd>${esc(HSW_TEXT[s.stateNswHsw] || '–')}</dd>
+            ${abs ? `<dt>Höhe</dt><dd>${abs}</dd>` : ''}
+        </dl>
+        <div class="spark">Verlauf (24 h) wird geladen …</div>
+        <div class="pp-links">
+            <span class="pp-meta">Pegel-Nr. ${esc(s.number)}</span>
+            <a href="${PEGEL_WEB}${encodeURIComponent(s.number)}" target="_blank" rel="noopener">PEGELONLINE ↗</a>
+        </div>`;
+}
+
+function openStation(uuid, { fly = false } = {}) {
+    const s = stations.find(x => x.uuid === uuid);
+    if (!s) return;
+
+    if (stationPopup) stationPopup.remove();
+    setSelected(uuid);
+
+    if (fly) {
+        map.flyTo({
+            center: [s.lon, s.lat],
+            zoom: Math.max(map.getZoom(), 12),
+            padding: viewPadding(),
+            essential: true
+        });
+    }
+
+    const popup = new maplibregl.Popup({ maxWidth: '320px', offset: 12, focusAfterOpen: false })
+        .setLngLat([s.lon, s.lat])
+        .setHTML(stationHtml(s))
+        .addTo(map);
+
+    popup.on('close', () => {
+        if (selectedUuid === uuid && stationPopup === popup) {
+            setSelected(null);
+            stationPopup = null;
+        }
+    });
+
+    stationPopup = popup;
+    loadSpark(s, popup);
+}
+
+async function loadSpark(s, popup) {
+    const target = () => (popup.isOpen() ? popup.getElement().querySelector('.spark') : null);
+    try {
+        let cached = sparkCache.get(s.uuid);
+        if (!cached || Date.now() - cached.t > 5 * 60000) {
+            const url = `${PEGEL_API}/stations/${encodeURIComponent(s.uuid)}/W/measurements.json?start=P1D`;
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            cached = { t: Date.now(), data: await r.json() };
+            sparkCache.set(s.uuid, cached);
+        }
+        const el = target();
+        if (!el) return;
+
+        const pts = cached.data
+            .filter(p => Number.isFinite(p.value))
+            .map(p => ({ t: Date.parse(p.timestamp), v: p.value }))
+            .filter(p => Number.isFinite(p.t))
+            .sort((a, b) => a.t - b.t);
+
+        el.innerHTML = sparkSvg(pts, s.unit);
+
+        const tr = trendOf(pts);
+        const trEl = popup.getElement().querySelector('[data-trend]');
+        if (trEl && tr) trEl.textContent = tr;
+    } catch (e) {
+        console.error('Messwerte', e);
+        const el = target();
+        if (el) el.textContent = 'Verlauf nicht verfügbar.';
+    }
+}
+
+function trendOf(pts) {
+    if (pts.length < 2) return '';
+    const last = pts[pts.length - 1];
+    let ref = null;
+    for (let i = pts.length - 2; i >= 0; i--) {
+        if (pts[i].t <= last.t - 3600000) { ref = pts[i]; break; }
+    }
+    if (!ref) return '';
+    const hours = (last.t - ref.t) / 3600000;
+    const d = (last.v - ref.v) / hours;
+    if (Math.abs(d) < 1) return '→ gleichbleibend';
+    return `${d > 0 ? '↑ steigend' : '↓ fallend'} (${d > 0 ? '+' : '−'}${fmtNum(Math.abs(d), 0)} cm/h)`;
+}
+
+function sparkSvg(pts, unit) {
+    if (pts.length < 2) return 'Keine Verlaufsdaten.';
+    const W = 290, H = 80, PL = 2, PR = 54, PT = 8, PB = 18;
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const vals = pts.map(p => p.v);
+    const realMin = Math.min(...vals), realMax = Math.max(...vals);
+    let lo = realMin, hi = realMax;
+    if (hi - lo < 4) { const mid = (hi + lo) / 2; lo = mid - 2; hi = mid + 2; }
+    const x = t => PL + (t - t0) / ((t1 - t0) || 1) * (W - PL - PR);
+    const y = v => PT + (hi - v) / (hi - lo) * (H - PT - PB);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    const area = `${line}L${x(t1).toFixed(1)},${H - PB}L${x(t0).toFixed(1)},${H - PB}Z`;
+    const last = pts[pts.length - 1];
+    const hours = Math.round((t1 - t0) / 3600000);
+    return `
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Wasserstand der letzten ${hours} Stunden, ${fmtNum(realMin)} bis ${fmtNum(realMax)} ${esc(unit)}">
+            <line x1="${PL}" x2="${W - PR}" y1="${H - PB}" y2="${H - PB}" stroke="var(--line)"/>
+            <path d="${area}" fill="var(--accent)" opacity="0.13"/>
+            <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+            <circle cx="${x(last.t).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="3.5" fill="var(--accent)"/>
+            <text x="${W - PR + 6}" y="${(y(realMax) + 4).toFixed(1)}" font-size="11" fill="var(--muted)">max ${fmtNum(realMax)}</text>
+            <text x="${W - PR + 6}" y="${(y(realMin) + 4).toFixed(1)}" font-size="11" fill="var(--muted)">min ${fmtNum(realMin)}</text>
+            <text x="${PL}" y="${H - 3}" font-size="11" fill="var(--muted)">−${hours} h</text>
+            <text x="${W - PR}" y="${H - 3}" font-size="11" fill="var(--muted)" text-anchor="end">jetzt</text>
+        </svg>`;
+}
+
+/* =====================================================================
+   Kilometersuche
+   ===================================================================== */
+
+const KM_TAGS = ['seamark:distance_mark:distance', 'distance', 'river:waterway_distance', 'ref'];
+const KM_WINDOW = 2; // ± km um den Suchwert, für Interpolation und Plausibilisierung
+
+function parseKmTag(tags, lo, hi) {
+    for (const k of KM_TAGS) {
+        const raw = tags && tags[k];
+        if (raw === undefined || raw === null) continue;
+        const m = String(raw).trim().match(/^(?:km\s*)?(\d+(?:[.,]\d+)?)\s*(?:km)?$/i);
+        if (!m) continue;
+        const v = parseFloat(m[1].replace(',', '.'));
+        if (v >= lo - 1e-9 && v <= hi + 1e-9) return v;
+    }
+    return null;
+}
+
+// Suchgebiet: eng um die Pegel-Schätzungen (schnell), sonst die ganze Fluss-Box.
+function searchBbox(river, estimates) {
+    const strong = estimates.filter(e => e.kind !== 'near');
+    if (!strong.length) return river.bbox;
+    const R = 15; // km Rand
+    let s = 90, w = 180, n = -90, e = -180;
+    for (const p of strong) {
+        const dLat = R / 111.2;
+        const dLon = R / (111.2 * Math.cos(p.lat * Math.PI / 180));
+        s = Math.min(s, p.lat - dLat); n = Math.max(n, p.lat + dLat);
+        w = Math.min(w, p.lon - dLon); e = Math.max(e, p.lon + dLon);
+    }
+    return [s, w, n, e].map(v => Math.round(v * 1e4) / 1e4);
+}
+
+function buildMarkQuery(bbox, km) {
+    const lo = Math.max(0, km - KM_WINDOW);
+    const hi = km + KM_WINDOW;
+    const [s, w, n, e] = bbox;
+    const ints = [];
+    for (let i = Math.floor(lo); i <= Math.ceil(hi); i++) ints.push(i);
+    const re = `^(km ?)?(${ints.join('|')})(,[0-9]+)?$`;
+
+    const numeric = KM_TAGS.map(k =>
+        `node.all(if: is_number(t["${k}"]) && number(t["${k}"]) >= ${lo} && number(t["${k}"]) <= ${hi});`);
+    const textual = KM_TAGS.map(k => `node.all["${k}"~"${re}"];`);
+
+    return {
+        lo, hi,
+        query: `[out:json][timeout:30][bbox:${s},${w},${n},${e}];
+(
+  node["seamark:type"="distance_mark"];
+  node["waterway"="milestone"];
+)->.all;
+(
+  ${numeric.join('\n  ')}
+  ${textual.join('\n  ')}
+);
+out body;`
+    };
+}
+
+const OVERPASS_BUDGET_MS = 75000; // danach gilt Overpass als nicht erreichbar
+
+// Fragt alle Server parallel; die erste gültige Antwort gewinnt. Bei Überlastung (429/50x)
+// wird derselbe Server mit wachsender Pause erneut gefragt – alles innerhalb des Zeitbudgets.
+async function overpass(query, onBusy) {
+    const started = Date.now();
+    const ctrls = new Set();
+    let done = false;
+
+    const attempt = async url => {
+        let host = url;
+        try { host = new URL(url).host; } catch { /* egal */ }
+        let pause = 3000;
+        let lastErr = new Error(`${host}: Zeitüberschreitung`);
+        while (!done) {
+            const remaining = OVERPASS_BUDGET_MS - (Date.now() - started);
+            if (remaining <= 0) break;
+            const ctrl = new AbortController();
+            ctrls.add(ctrl);
+            const timer = setTimeout(() => ctrl.abort(), remaining);
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'data=' + encodeURIComponent(query),
+                    signal: ctrl.signal
+                });
+                if (r.ok) return await r.json();
+                if (r.status === 400) throw Object.assign(new Error(`${host}: fehlerhafte Abfrage`), { fatal: true });
+                lastErr = new Error(`${host}: HTTP ${r.status}`);
+            } catch (e) {
+                if (e.fatal) throw e;
+                if (e.name === 'AbortError') throw lastErr;
+                lastErr = e;
+            } finally {
+                clearTimeout(timer);
+                ctrls.delete(ctrl);
+            }
+            if (onBusy && !done) onBusy(host);
+            await sleep(Math.min(pause, Math.max(0, OVERPASS_BUDGET_MS - (Date.now() - started))));
+            pause *= 2;
+        }
+        throw lastErr;
+    };
+
+    try {
+        return await Promise.any(CFG.overpassServer.map(attempt));
+    } catch (agg) {
+        const errs = agg.errors || [agg];
+        throw errs.find(e => e.fatal) || new Error('Server ausgelastet oder nicht erreichbar');
+    } finally {
+        done = true;
+        ctrls.forEach(c => c.abort());
+    }
+}
+
+// Gruppiert Kilometermarken zu zusammenhängenden Ketten (= ein Gewässerabschnitt).
+function buildChains(marks) {
+    const n = marks.length;
+    const parent = marks.map((_, i) => i);
+    const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            const dv = Math.abs(marks[i].v - marks[j].v);
+            const d = distKm(marks[i], marks[j]);
+            const linked = dv < 1e-6 ? d <= 0.6 : d <= dv * 1.6 + 0.35;
+            if (linked) parent[find(i)] = find(j);
+        }
+    }
+
+    const groups = new Map();
+    marks.forEach((m, i) => {
+        const r = find(i);
+        if (!groups.has(r)) groups.set(r, []);
+        groups.get(r).push(m);
+    });
+    return [...groups.values()];
+}
+
+// Position eines Kilometers innerhalb einer Kette.
+function chainPosition(members, km) {
+    const byV = new Map();
+    for (const m of members) {
+        const key = Math.round(m.v * 1000) / 1000;
+        if (!byV.has(key)) byV.set(key, []);
+        byV.get(key).push(m);
+    }
+    const avg = list => ({
+        lat: list.reduce((a, m) => a + m.lat, 0) / list.length,
+        lon: list.reduce((a, m) => a + m.lon, 0) / list.length,
+        count: list.length
+    });
+    const vals = [...byV.keys()].sort((a, b) => a - b);
+
+    const exact = vals.find(v => Math.abs(v - km) < 1e-6);
+    if (exact !== undefined) {
+        const p = avg(byV.get(exact));
+        return { type: 'exact', lat: p.lat, lon: p.lon, from: exact, count: p.count };
+    }
+
+    const lower = vals.filter(v => v < km).pop();
+    const upper = vals.find(v => v > km);
+    if (lower !== undefined && upper !== undefined) {
+        const a = avg(byV.get(lower));
+        const b = avg(byV.get(upper));
+        const p = lerpPos(a, b, (km - lower) / (upper - lower));
+        return { type: 'interp', lat: p.lat, lon: p.lon, from: lower, to: upper };
+    }
+
+    const nearest = vals.reduce((best, v) => (Math.abs(v - km) < Math.abs(best - km) ? v : best), vals[0]);
+    const p = avg(byV.get(nearest));
+    return { type: 'nearest', lat: p.lat, lon: p.lon, from: nearest };
+}
+
+function riverGauges(river) {
+    const waters = new Set(river.pegelonline || []);
+    return stations
+        .filter(s => waters.has(s.waterShort) && s.km !== null)
+        .sort((a, b) => a.km - b.km);
+}
+
+// Erwartete Position aus der PEGELONLINE-Kilometrierung (Luftlinie zwischen zwei Pegeln).
+function gaugeEstimates(river, km) {
+    const gs = riverGauges(river);
+    const out = [];
+    const push = e => { if (!out.some(x => distKm(x, e) < 15)) out.push(e); };
+
+    const pairs = [];
+    for (let i = 0; i < gs.length; i++) {
+        for (let j = i + 1; j < gs.length; j++) {
+            const a = gs[i], b = gs[j];
+            const span = b.km - a.km;
+            if (span <= 0 || span > 120 || a.km > km || b.km < km) continue;
+            // Luftlinie kann nicht länger sein als die Flussstrecke – sonst andere Kilometrierung.
+            if (distKm(a, b) > span * 1.05 + 2) continue;
+            pairs.push({ a, b, span });
+        }
+    }
+    pairs.sort((p, q) => p.span - q.span);
+    for (const { a, b } of pairs) {
+        if (Math.abs(a.km - km) < 0.01) { push({ lat: a.lat, lon: a.lon, kind: 'gauge', a }); continue; }
+        if (Math.abs(b.km - km) < 0.01) { push({ lat: b.lat, lon: b.lon, kind: 'gauge', a: b }); continue; }
+        const p = lerpPos(a, b, (km - a.km) / (b.km - a.km));
+        push({ ...p, kind: 'interp', a, b });
+    }
+
+    // Außerhalb des Pegelbereichs: nächster Pegel nur als schwacher Hinweis.
+    if (!out.length) {
+        for (const g of gs) {
+            if (Math.abs(g.km - km) <= 25) push({ lat: g.lat, lon: g.lon, kind: 'near', a: g });
+        }
+    }
+    return out;
+}
+
+// Pegel derselben Kilometrierung in der Nähe eines Ergebnisses.
+function nearbyGauges(river, km, pos) {
+    return riverGauges(river)
+        .map(g => ({ g, dk: Math.abs(g.km - km), d: distKm(g, pos) }))
+        .filter(x => x.d <= x.dk * 1.2 + 5)
+        .sort((a, b) => a.dk - b.dk)
+        .slice(0, 2);
+}
+
+const TYPE_PENALTY = { exact: 0, interp: 0.2, nearest: 5 };
+
+// Ergebnisse allein aus den Pegeln. Weitere Schätzungen nur, wenn sie ähnlich eng
+// eingegrenzt sind (z. B. die zweite Kilometrierung der Unterweser).
+function estimateResults(estimates) {
+    const strong = estimates.filter(e => e.kind !== 'near');
+    if (!strong.length) return [];
+    const span = e => (e.kind === 'gauge' ? 0 : e.b.km - e.a.km);
+    const best = span(strong[0]);
+    return strong
+        .filter(e => span(e) <= Math.max(30, best * 2))
+        .map(e => ({ type: 'estimate', lat: e.lat, lon: e.lon, est: e, dEst: 0 }));
+}
+
+let kmSeq = 0;
+
+async function kmSearch(river, km) {
+    const seq = ++kmSeq;
+    const btn = $('#kmSubmit');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    $('#kmResult').innerHTML = '';
+    setStatus(`Suche ${river.name} km ${fmtKm(km)} …`);
+
+    try {
+        await Promise.race([stationsReady, sleep(8000)]);
+        if (seq !== kmSeq) return;
+        const estimates = gaugeEstimates(river, km);
+        const hasEst = estimates.length > 0;
+        const estResults = estimateResults(estimates);
+        const { query, lo, hi } = buildMarkQuery(searchBbox(river, estimates), km);
+
+        // Sofort eine vorläufige Position aus den Pegeln zeigen – Overpass kann dauern.
+        if (estResults.length) {
+            showKmResult({ river, km, results: estResults, hasEst, provisional: true }, 0);
+            setStatus('');
+        }
+
+        let marks = [];
+        let overpassError = null;
+        // Fortschritt im Ladehinweis: vergangene Sekunden, ggf. „ausgelastet“
+        const busyHosts = new Set(); // „ausgelastet“ erst, wenn alle Server abgewiesen haben
+        const t0 = Date.now();
+        const tick = setInterval(() => {
+            if (seq !== kmSeq) return clearInterval(tick);
+            const tag = document.querySelector('#kmResult .tag-busy');
+            const sec = Math.round((Date.now() - t0) / 1000);
+            const busy = busyHosts.size >= CFG.overpassServer.length;
+            const text = `${busy ? 'OSM ausgelastet' : 'Lade OSM-Marken'} · ${sec} s`;
+            if (tag) tag.lastChild.textContent = text;
+            else setStatus(`${text} …`);
+        }, 1000);
+        try {
+            const data = await overpass(query, host => { busyHosts.add(host); });
+            const seen = new Set();
+            for (const el of data.elements || []) {
+                if (el.type !== 'node' || seen.has(el.id)) continue;
+                seen.add(el.id);
+                const v = parseKmTag(el.tags, lo, hi);
+                if (v !== null) marks.push({ id: el.id, lat: el.lat, lon: el.lon, v, tags: el.tags });
+            }
+        } catch (e) {
+            console.error('Overpass', e);
+            overpassError = e;
+        } finally {
+            clearInterval(tick);
+            if (seq === kmSeq) setStatus('');
+        }
+        if (seq !== kmSeq) return;
+
+        const candidates = buildChains(marks).map(members => {
+            const pos = chainPosition(members, km);
+            const dEst = estimates.length ? Math.min(...estimates.map(e => distKm(e, pos))) : Infinity;
+            return { ...pos, members, size: members.length, dEst };
+        });
+
+        candidates.sort((a, b) => {
+            if (hasEst) {
+                const ca = a.dEst + TYPE_PENALTY[a.type], cb = b.dEst + TYPE_PENALTY[b.type];
+                if (Math.abs(ca - cb) > 1e-9) return ca - cb;
+            }
+            return (TYPE_PENALTY[a.type] - TYPE_PENALTY[b.type]) || (b.size - a.size);
+        });
+
+        const results = candidates.length ? candidates : estResults;
+
+        if (!results.length) {
+            const msg = overpassError
+                ? 'Die OSM-Server sind gerade nicht erreichbar, und für diesen Kilometer liegen keine passenden Pegel vor.'
+                : `Für ${river.name} km ${fmtKm(km)} gibt es in OpenStreetMap keine Kilometermarke im Umkreis von ±${KM_WINDOW} km, und es liegen keine passenden Pegel vor.`;
+            $('#kmResult').innerHTML = `<div class="card"><h3>Kein Treffer</h3><p class="res-src">${esc(msg)}</p>
+                ${overpassError ? '<button class="btn-ghost" type="button" data-retry style="width:100%;margin-top:8px">Erneut versuchen</button>' : ''}</div>`;
+            $('#kmResult [data-retry]')?.addEventListener('click', () => kmSearch(river, km));
+            setStatus('Kein Treffer', { error: true });
+            return;
+        }
+
+        const ctx = { river, km, results, hasEst, overpassError };
+        showKmResult(ctx, 0);
+        setStatus('');
+
+        try {
+            const p = new URLSearchParams(location.search);
+            p.set('fluss', river.name);
+            p.set('km', String(km));
+            p.delete('ort');
+            history.replaceState(null, '', `${location.pathname}?${p}`);
+        } catch { /* file:// o. ä. */ }
+    } finally {
+        if (seq === kmSeq) { btn.disabled = false; btn.classList.remove('busy'); }
+    }
+}
+
+// Herkunft der Position in einem Satz
+function describeResult(r, km) {
+    switch (r.type) {
+        case 'exact':
+            return r.count > 1
+                ? `OSM-Kilometermarke km ${fmtKm(r.from)}, Mitte aus ${r.count} Marken`
+                : `OSM-Kilometermarke km ${fmtKm(r.from)}`;
+        case 'interp':
+            return `Zwischen den OSM-Marken km ${fmtKm(r.from)} und ${fmtKm(r.to)}`;
+        case 'nearest':
+            return `Nächste OSM-Marke: km ${fmtKm(r.from)}`;
+        case 'estimate': {
+            const e = r.est;
+            if (e.kind === 'gauge') return `Position des Pegels ${e.a.name}`;
+            return `Luftlinie zwischen Pegel ${e.a.name} (km ${fmtKm(e.a.km)}) und ${e.b.name} (km ${fmtKm(e.b.km)})`;
+        }
+        default:
+            return '';
+    }
+}
+
+function resultTag(r, provisional) {
+    if (provisional) return '<span class="tag tag-busy"><span class="spinner"></span>Lade OSM-Marken</span>';
+    switch (r.type) {
+        case 'exact': return '<span class="tag tag-ok">Kilometermarke</span>';
+        case 'interp': return '<span class="tag tag-info">Interpoliert</span>';
+        case 'nearest': return '<span class="tag tag-warn">Nächste Marke</span>';
+        case 'estimate': return '<span class="tag tag-warn">Schätzung</span>';
+        default: return '';
+    }
+}
+
+// Position in externen Karten-Apps öffnen
+function mapLinksHtml(lat, lon, label) {
+    const la = lat.toFixed(6), lo = lon.toFixed(6);
+    const q = encodeURIComponent(label || `${la},${lo}`);
+    return `<div class="actions">
+        <a class="btn-ghost" href="https://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=16/${lat.toFixed(5)}/${lon.toFixed(5)}" target="_blank" rel="noopener">OSM</a>
+        <a class="btn-ghost" href="https://www.google.com/maps/search/?api=1&query=${la},${lo}" target="_blank" rel="noopener">Google Maps</a>
+        <a class="btn-ghost" href="https://maps.apple.com/?ll=${la},${lo}&q=${q}&z=16" target="_blank" rel="noopener">Apple Karten</a>
+    </div>`;
+}
+
+function showKmResult(ctx, index) {
+    const { river, km, results, hasEst, overpassError, provisional } = ctx;
+    const r = results[index];
+    const title = `${river.name} km ${fmtKm(km)}`;
+    const desc = describeResult(r, km);
+
+    // Hinweise knapp und nur, wenn sie etwas ändern
+    const warnings = [];
+    if (!provisional && r.type === 'estimate') {
+        warnings.push(overpassError
+            ? 'OSM-Server nicht erreichbar. Grobe Schätzung aus den Pegeln, Abweichung bis in den Kilometerbereich möglich.'
+            : 'Keine OSM-Kilometermarke vorhanden. Grobe Schätzung, Abweichung bis in den Kilometerbereich möglich.');
+    }
+    if (r.type === 'nearest') warnings.push(`Die Position gehört zu km ${fmtKm(r.from)}, nicht zu km ${fmtKm(km)}.`);
+    if (r.type !== 'estimate' && hasEst && r.dEst > 8) {
+        warnings.push(`Liegt ${fmtDist(r.dEst)} neben der laut Pegeln erwarteten Position – evtl. anderes Gewässer.`);
+    }
+    if (r.type !== 'estimate' && !hasEst && results.length > 1) {
+        warnings.push('Ohne Pegelbezug nicht eindeutig – weitere Treffer prüfen.');
+    }
+
+    const gauges = nearbyGauges(river, km, r);
+    const gaugeHtml = gauges.length ? `
+        <div class="sub-h">Nächste Pegel</div>
+        <ul class="list">${gauges.map(({ g }) => `
+            <li><button type="button" data-gauge="${esc(g.uuid)}">
+                <span class="dot" style="background:${STATE[g.state].color}"></span>
+                <span class="li-main">
+                    <span class="li-title">${esc(g.name)}</span>
+                    <span class="li-sub">km ${fmtKm(g.km)} · ${fmtDist(distKm(g, r))} entfernt</span>
+                </span>
+                <span class="li-val">${valueText(g)}${tempText(g) ? `<span class="li-temp">${esc(tempText(g))}</span>` : ''}</span>
+            </button></li>`).join('')}
+        </ul>` : '';
+
+    const alts = results.map((x, i) => ({ x, i })).filter(({ i }) => i !== index).slice(0, 4);
+    const altHtml = alts.length ? `
+        <div class="sub-h">Weitere Treffer <small>${alts.length}</small></div>
+        <ul class="list">${alts.map(({ x, i }) => `
+            <li><button type="button" data-alt="${i}">
+                <span class="li-main">
+                    <span class="li-title">${esc(describeResult(x, km))}</span>
+                    <span class="li-sub">${fmtDist(distKm(x, r))} entfernt${Number.isFinite(x.dEst) && x.type !== 'estimate' ? ` · ${fmtDist(x.dEst)} neben Pegel-Erwartung` : ''}</span>
+                </span>
+            </button></li>`).join('')}
+        </ul>` : '';
+
+    const box = $('#kmResult');
+    box.innerHTML = `
+        <div class="card">
+            <div class="res-head"><h3>${esc(title)}</h3>${resultTag(r, provisional)}</div>
+            <p class="res-src">${esc(desc)}</p>
+            ${coordTableHtml(r.lat, r.lon)}
+            ${mapLinksHtml(r.lat, r.lon, title)}
+            ${warnings.map(w => `<div class="warn">${esc(w)}</div>`).join('')}
+            ${!provisional && overpassError ? '<button class="btn-ghost" type="button" data-retry style="width:100%;margin-top:8px">OSM-Marken erneut laden</button>' : ''}
+            ${gaugeHtml}
+            ${altHtml}
+        </div>`;
+
+    box.querySelectorAll('[data-alt]').forEach(b =>
+        b.addEventListener('click', () => showKmResult(ctx, Number(b.dataset.alt))));
+    box.querySelectorAll('[data-gauge]').forEach(b =>
+        b.addEventListener('click', () => openStation(b.dataset.gauge, { fly: true })));
+    box.querySelector('[data-retry]')?.addEventListener('click', () => kmSearch(river, km));
+
+    map.flyTo({ center: [r.lon, r.lat], zoom: r.type === 'estimate' ? 13 : 15, padding: viewPadding(), essential: true });
+    const u = toUtm(r.lat, r.lon);
+    setResultMarker(r.lat, r.lon, `
+        <div class="pp-title">${esc(title)}</div>
+        <div class="pp-sub">${esc(desc)}</div>
+        <div class="pp-meta" style="margin-top:6px">${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}${u ? ` · ${esc(toMgrs(u))}` : ''}</div>`,
+        r.type === 'estimate' || r.type === 'nearest' ? '#d08700' : '#2468a8',
+        { detailsTab: 'km' });
+}
+
+$('#kmForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const river = selectedRiver();
+    const km = parseKmInput($('#km').value);
+    if (!river) return;
+    if (km === null) {
+        setStatus('Bitte einen Kilometer als Zahl eingeben, z. B. 325 oder 325,4.', { error: true });
+        $('#km').focus();
+        return;
+    }
+    $('#km').blur();
+    if (isMobile()) setCollapsed(true);
+    kmSearch(river, km);
+});
+
+$('#river').addEventListener('change', () => renderPegelList());
+
+/* =====================================================================
+   Ortssuche (Nominatim)
+   ===================================================================== */
+
+let ortSeq = 0;
+
+// Polygone mitliefern; Vereinfachung ~10 m hält auch Landkreise klein.
+const NOMINATIM_GEOM = { polygon_geojson: '1', polygon_threshold: '0.0001', extratags: '1' };
+
+/* ---------- Grenze der Gebietskörperschaft ---------- */
+
+let boundary = null; // { geojson, name, kind }
+let boundarySeq = 0;
+
+function boundaryData() {
+    return boundary
+        ? { type: 'Feature', geometry: boundary.geojson, properties: {} }
+        : { type: 'FeatureCollection', features: [] };
+}
+
+function adminLevel(p) {
+    const lvl = parseInt(p && p.extratags && p.extratags.admin_level, 10);
+    return Number.isFinite(lvl) ? lvl : null;
+}
+
+function isAdminArea(p) {
+    return p && p.category === 'boundary' && p.type === 'administrative' &&
+        p.geojson && /Polygon$/.test(p.geojson.type);
+}
+
+// Bezeichnung der Gebietskörperschaft (deutsche Verwaltungsebenen in OSM)
+function adminKind(p) {
+    const lvl = adminLevel(p);
+    const t = p.addresstype;
+    switch (lvl) {
+        case 2: return 'Staat';
+        case 4: return 'Bundesland';
+        case 5: return 'Regierungsbezirk';
+        case 6: return t === 'county' ? 'Landkreis' : 'Kreisfreie Stadt';
+        case 7: return 'Verbandsgemeinde / Amt';
+        case 8: return ['city', 'town'].includes(t) ? 'Stadt' : 'Gemeinde';
+        case 9: case 10: return 'Ortsteil / Stadtbezirk';
+        default: return 'Verwaltungsgebiet';
+    }
+}
+
+const GRENZE_LAYERS = ['grenze-fill', 'grenze-casing', 'grenze-line'];
+
+// Neue Grenze übernehmen (null = verwerfen). Eine neue Grenze ist immer sichtbar.
+function setBoundary(b) {
+    boundary = b;
+    const src = map.getSource('grenze');
+    if (src) src.setData(boundaryData());
+    if (b) setBoundaryVisible(true); else renderBoundaryUi();
+}
+
+// Nur ein-/ausblenden – die Grenze bleibt erhalten und lässt sich wieder einblenden.
+function setBoundaryVisible(on) {
+    ui.grenze = on;
+    for (const id of GRENZE_LAYERS) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    }
+    renderBoundaryUi();
+}
+
+function renderBoundaryUi() {
+    const b = boundary;
+    const box = $('#grenzeInfo');
+    box.innerHTML = b ? `
+        <div class="grenze-row${ui.grenze ? '' : ' off'}">
+            <span class="grenze-swatch" aria-hidden="true"></span>
+            <span class="li-main">
+                <span class="li-title">${esc(b.name)}</span>
+                <span class="li-sub">Grenze · ${esc(b.kind)}</span>
+            </span>
+            <button class="switch" type="button" role="switch" aria-checked="${ui.grenze}" aria-label="Grenze anzeigen" title="Grenze anzeigen"></button>
+        </div>` : '';
+    if (b) {
+        box.querySelector('.switch').addEventListener('click', () => setBoundaryVisible(!ui.grenze));
+    }
+
+    // Schalter im Layer-Menü
+    const cb = document.querySelector('.layer-menu input[data-ov="grenze"]');
+    if (cb) {
+        cb.disabled = !b;
+        cb.checked = !!b && ui.grenze;
+        cb.closest('label').classList.toggle('disabled', !b);
+        cb.closest('label').querySelector('[data-grenze-hint]').textContent =
+            b ? `${b.name} (${b.kind})` : 'erscheint nach einer Ortssuche';
+    }
+}
+
+// Gebietskörperschaft zum Treffer bestimmen: der Treffer selbst (Gemeinde, Kreis, Land …)
+// oder – bei Ortsteilen, Adressen, Gebäuden – die Gemeinde, in der er liegt.
+async function loadBoundaryFor(p) {
+    const seq = ++boundarySeq;
+    const lvl = adminLevel(p);
+    if (isAdminArea(p) && lvl !== null && lvl <= 8) {
+        setBoundary({ geojson: p.geojson, name: p.name || p.display_name.split(',')[0], kind: adminKind(p) });
+        return;
+    }
+    setBoundary(null);
+    try {
+        await sleep(1100); // Nominatim-Nutzungsrichtlinie: max. 1 Anfrage pro Sekunde
+        if (seq !== boundarySeq) return;
+        const params = new URLSearchParams({
+            format: 'jsonv2', lat: p.lat, lon: p.lon, zoom: '10', 'accept-language': 'de', ...NOMINATIM_GEOM
+        });
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const g = await r.json();
+        if (seq !== boundarySeq) return;
+        if (isAdminArea(g)) {
+            setBoundary({ geojson: g.geojson, name: g.name || g.display_name.split(',')[0], kind: adminKind(g) });
+        }
+    } catch (e) {
+        console.error('Nominatim reverse', e);
+    }
+}
+
+async function ortSearch(q, { auto = false } = {}) {
+    const seq = ++ortSeq;
+    const btn = $('#ortSubmit');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    setStatus(`Suche „${q}“ …`);
+    try {
+        const params = new URLSearchParams({
+            format: 'jsonv2', q, limit: auto ? '1' : '6', 'accept-language': 'de', ...NOMINATIM_GEOM
+        });
+        if (CFG.ortssucheLaender) params.set('countrycodes', CFG.ortssucheLaender);
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (seq !== ortSeq) return;
+
+        if (!data.length) {
+            $('#ortResultsHead').innerHTML = '';
+            $('#ortResults').innerHTML = '<li class="empty">Kein Ort gefunden.</li>';
+            setStatus(`„${q}“ nicht gefunden`, { error: true });
+            return;
+        }
+
+        $('#ortResultsHead').innerHTML = data.length > 1 ? `<div class="sub-h">Treffer <small>${data.length}</small></div>` : '';
+        $('#ortResults').innerHTML = data.length < 2 ? '' : data.map((p, i) => `
+            <li><button type="button" data-i="${i}">
+                <span class="li-main">
+                    <span class="li-title">${esc(p.name || p.display_name.split(',')[0])}</span>
+                    <span class="li-sub">${esc(p.display_name)}</span>
+                </span>
+            </button></li>`).join('');
+        $('#ortResults').querySelectorAll('button').forEach(b =>
+            b.addEventListener('click', () => showPlace(data[Number(b.dataset.i)])));
+
+        showPlace(data[0]);
+        setStatus('');
+    } catch (e) {
+        console.error('Nominatim', e);
+        if (seq === ortSeq) setStatus(`Ortssuche fehlgeschlagen (${e.message})`, { error: true });
+    } finally {
+        if (seq === ortSeq) { btn.disabled = false; btn.classList.remove('busy'); }
+    }
+}
+
+function showPlace(p) {
+    const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
+    const bb = (p.boundingbox || []).map(Number); // [süd, nord, west, ost]
+    const hasBox = bb.length === 4 && bb.every(Number.isFinite) && (bb[1] - bb[0] > 0.002 || bb[3] - bb[2] > 0.002);
+
+    if (hasBox) {
+        map.fitBounds([[bb[2], bb[0]], [bb[3], bb[1]]], { padding: viewPadding(), maxZoom: 15, essential: true });
+    } else {
+        map.flyTo({ center: [lon, lat], zoom: 15, padding: viewPadding(), essential: true });
+    }
+    setResultMarker(lat, lon, `<div class="pp-title">${esc(p.name || p.display_name.split(',')[0])}</div><div class="pp-sub">${esc(p.display_name)}</div>`, '#5d6b7c', { detailsTab: 'ort' });
+    loadBoundaryFor(p);
+}
+
+$('#ortForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const q = $('#ort').value.trim();
+    if (!q) return;
+    $('#ort').blur();
+    if (isMobile()) setCollapsed(true);
+    ortSearch(q);
+});
+
+/* =====================================================================
+   Koordinatenformate: WGS84, GPS (Grad/Minuten), UTM, UTMREF (MGRS)
+   ===================================================================== */
+
+// WGS84 → UTM nach Krüger (n-Reihe 6. Ordnung, Genauigkeit im Sub-mm-Bereich).
+// Berücksichtigt die Sonderzonen für Norwegen (32V) und Spitzbergen (31X–37X).
+function toUtm(lat, lon) {
+    if (!(lat >= -80 && lat <= 84) || !Number.isFinite(lon)) return null;
+    lon = ((lon + 180) % 360 + 360) % 360 - 180;
+
+    let zone = Math.floor((lon + 180) / 6) + 1;
+    if (zone > 60) zone = 60;
+    const band = 'CDEFGHJKLMNPQRSTUVWXX'.charAt(Math.floor(lat / 8 + 10));
+
+    if (zone === 31 && band === 'V' && lon >= 3) zone = 32;
+    if (band === 'X') {
+        if (zone === 32) zone = lon < 9 ? 31 : 33;
+        else if (zone === 34) zone = lon < 21 ? 33 : 35;
+        else if (zone === 36) zone = lon < 33 ? 35 : 37;
+    }
+
+    const a = 6378137, f = 1 / 298.257223563, k0 = 0.9996;
+    const rad = Math.PI / 180;
+    const e = Math.sqrt(f * (2 - f));
+    const n = f / (2 - f), n2 = n * n, n3 = n2 * n, n4 = n3 * n, n5 = n4 * n, n6 = n5 * n;
+
+    const phi = lat * rad;
+    const lam = (lon - ((zone - 1) * 6 - 180 + 3)) * rad;
+    const cosL = Math.cos(lam), sinL = Math.sin(lam);
+
+    const tau = Math.tan(phi);
+    const sigma = Math.sinh(e * Math.atanh(e * tau / Math.sqrt(1 + tau * tau)));
+    const tauP = tau * Math.sqrt(1 + sigma * sigma) - sigma * Math.sqrt(1 + tau * tau);
+    const xiP = Math.atan2(tauP, cosL);
+    const etaP = Math.asinh(sinL / Math.sqrt(tauP * tauP + cosL * cosL));
+
+    const A = a / (1 + n) * (1 + n2 / 4 + n4 / 64 + n6 / 256);
+    const alpha = [
+        n / 2 - 2 / 3 * n2 + 5 / 16 * n3 + 41 / 180 * n4 - 127 / 288 * n5 + 7891 / 37800 * n6,
+        13 / 48 * n2 - 3 / 5 * n3 + 557 / 1440 * n4 + 281 / 630 * n5 - 1983433 / 1935360 * n6,
+        61 / 240 * n3 - 103 / 140 * n4 + 15061 / 26880 * n5 + 167603 / 181440 * n6,
+        49561 / 161280 * n4 - 179 / 168 * n5 + 6601661 / 7257600 * n6,
+        34729 / 80640 * n5 - 3418889 / 1995840 * n6,
+        212378941 / 319334400 * n6
+    ];
+
+    let xi = xiP, eta = etaP;
+    for (let j = 1; j <= 6; j++) {
+        xi += alpha[j - 1] * Math.sin(2 * j * xiP) * Math.cosh(2 * j * etaP);
+        eta += alpha[j - 1] * Math.cos(2 * j * xiP) * Math.sinh(2 * j * etaP);
+    }
+
+    const easting = k0 * A * eta + 500000;
+    let northing = k0 * A * xi;
+    if (northing < 0) northing += 10000000;
+
+    return { zone, band, easting, northing };
+}
+
+// UTM → UTMREF/MGRS (100-km-Quadrat + 1-m-Auflösung; Ziffern werden nach Norm abgeschnitten).
+function toMgrs(u) {
+    if (!u) return null;
+    const colSets = ['ABCDEFGH', 'JKLMNPQR', 'STUVWXYZ'];
+    const rowLetters = 'ABCDEFGHJKLMNPQRSTUV';
+    const e = Math.floor(u.easting), n = Math.floor(u.northing);
+    const col = colSets[(u.zone - 1) % 3].charAt(Math.floor(e / 100000) - 1);
+    const row = rowLetters.charAt((Math.floor(n / 100000) + (u.zone % 2 === 0 ? 5 : 0)) % 20);
+    const pad = v => String(v % 100000).padStart(5, '0');
+    return `${u.zone}${u.band} ${col}${row} ${pad(e)} ${pad(n)}`;
+}
+
+function fmtDdm(lat, lon) {
+    const part = (v, pos, neg, w) => {
+        const abs = Math.abs(v);
+        let d = Math.floor(abs);
+        let m = Math.round((abs - d) * 60 * 1000) / 1000;
+        if (m >= 60) { d += 1; m = 0; }
+        return `${v >= 0 ? pos : neg} ${String(d).padStart(w, '0')}° ${m.toFixed(3).padStart(6, '0')}'`;
+    };
+    return `${part(lat, 'N', 'S', 2)} ${part(lon, 'E', 'W', 3)}`;
+}
+
+function coordFormats(lat, lon) {
+    const u = toUtm(lat, lon);
+    return [
+        { key: 'gps',    label: 'GPS',    value: fmtDdm(lat, lon) },
+        { key: 'wgs84',  label: 'WGS84',  value: `${lat.toFixed(6)}, ${lon.toFixed(6)}` },
+        { key: 'utm',    label: 'UTM',    value: u ? `${u.zone}${u.band} ${Math.floor(u.easting)} ${Math.floor(u.northing)}` : 'außerhalb UTM' },
+        { key: 'utmref', label: 'UTMREF', value: u ? toMgrs(u) : 'außerhalb UTM' }
+    ];
+}
+
+const COPY_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const CHECK_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>';
+
+// Koordinaten als Liste; jede Zeile kopiert ihren Wert beim Antippen.
+function coordTableHtml(lat, lon) {
+    return `<div class="coord-list">${coordFormats(lat, lon).map(f => `
+        <button class="coord-row" type="button" data-copy="${esc(f.value)}" title="${f.label} kopieren">
+            <span class="cr-k">${f.label}</span>
+            <span class="cr-v" data-fmt="${f.key}">${esc(f.value)}</span>
+            <span class="cr-ok" aria-hidden="true">Kopiert</span>
+        </button>`).join('')}
+    </div>
+    <div class="coord-hint">Zeile antippen zum Kopieren</div>`;
+}
+
+function coordsAsText(lat, lon) {
+    return coordFormats(lat, lon).map(f => `${f.label}: ${f.value}`).join('\n');
+}
+
+// Ein Kopieren-Handler für Panel und Popups.
+document.addEventListener('click', async ev => {
+    const btn = ev.target.closest('[data-copy]');
+    if (!btn) return;
+    ev.stopPropagation();
+    const ok = await copyText(btn.dataset.copy);
+    setStatus(ok ? 'In die Zwischenablage kopiert' : 'Kopieren nicht möglich', { error: !ok, clearAfter: 3000 });
+    if (ok && btn.classList.contains('coord-row')) {
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 1400);
+    }
+    if (ok && btn.classList.contains('copy-btn')) {
+        btn.innerHTML = CHECK_ICON;
+        btn.classList.add('ok');
+        setTimeout(() => { btn.innerHTML = COPY_ICON; btn.classList.remove('ok'); }, 1500);
+    }
+});
+
+/* =====================================================================
+   Positionsmarker (setzen per Button, Rechtsklick oder langem Tippen)
+   ===================================================================== */
+
+let pin = null;
+let pinPopup = null;
+let pinMode = false;
+
+function pinPopupHtml(lat, lon) {
+    return `
+        <div class="pp-title">Positionsmarker</div>
+        <div class="pp-sub">Zum Korrigieren ziehen</div>
+        ${coordTableHtml(lat, lon)}
+        ${mapLinksHtml(lat, lon, 'Positionsmarker')}
+        <div class="pin-actions">
+            <button class="btn-ghost" type="button" data-copy="${esc(coordsAsText(lat, lon))}">${COPY_ICON}Alle kopieren</button>
+            <button class="btn-ghost danger" type="button" data-pin-remove>Entfernen</button>
+        </div>`;
+}
+
+function refreshPinPopup() {
+    if (!pin) return;
+    const { lat, lng } = pin.getLngLat();
+    pinPopup.setHTML(pinPopupHtml(lat, lng));
+}
+
+function updatePinUrl() {
+    try {
+        const p = new URLSearchParams(location.search);
+        if (pin) {
+            const { lat, lng } = pin.getLngLat();
+            p.set('marker', `${lat.toFixed(6)},${lng.toFixed(6)}`);
+        } else {
+            p.delete('marker');
+        }
+        const qs = p.toString();
+        history.replaceState(null, '', location.pathname + (qs ? `?${qs}` : ''));
+    } catch { /* file:// o. ä. */ }
+}
+
+function ensurePinPopupVisible() { ensurePopupVisible(pinPopup); }
+
+function placePin(lat, lon, { open = true } = {}) {
+    lon = ((lon + 180) % 360 + 360) % 360 - 180;
+    if (!pin) {
+        pinPopup = new maplibregl.Popup({
+            offset: 32,
+            maxWidth: '360px',
+            focusAfterOpen: false,
+            closeOnClick: false,
+            // Am Handy immer oberhalb des Markers – unten liegt das Bottom Sheet.
+            anchor: isMobile() ? 'bottom' : undefined
+        });
+        pinPopup.on('open', ensurePinPopupVisible);
+        pin = new maplibregl.Marker({ color: '#d81b60', draggable: true })
+            .setLngLat([lon, lat])
+            .setPopup(pinPopup)
+            .addTo(map);
+        pin.on('drag', refreshPinPopup);
+        pin.on('dragend', () => {
+            refreshPinPopup();
+            updatePinUrl();
+            if (!pinPopup.isOpen()) pin.togglePopup();
+        });
+    } else {
+        pin.setLngLat([lon, lat]);
+    }
+    refreshPinPopup();
+    if (open && !pinPopup.isOpen()) pin.togglePopup();
+    else if (open) ensurePinPopupVisible();
+    updatePinUrl();
+}
+
+function removePin() {
+    if (!pin) return;
+    pin.remove();
+    pin = null;
+    pinPopup = null;
+    updatePinUrl();
+    setStatus('Marker entfernt', { clearAfter: 2500 });
+}
+
+document.addEventListener('click', ev => {
+    if (ev.target.closest('[data-pin-remove]')) removePin();
+});
+
+function setPinMode(on) {
+    if (on && measureMode) setMeasureMode(false);
+    pinMode = on;
+    map.getContainer().classList.toggle('pin-mode', on || measureMode);
+    const btn = document.querySelector('.pin-btn');
+    if (btn) btn.setAttribute('aria-pressed', String(on));
+    if (on) setStatus('Auf die Karte tippen, um den Marker zu setzen (Esc bricht ab).');
+    else if ($('#status').textContent.startsWith('Auf die Karte tippen')) setStatus('');
+}
+
+class PinControl {
+    onAdd() {
+        const el = document.createElement('div');
+        el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        el.innerHTML = `
+            <button type="button" class="ctrl-svg pin-btn" aria-pressed="false" title="Marker setzen (auch Rechtsklick / lange tippen)" aria-label="Marker setzen">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 21s-6.5-5.6-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>
+                </svg>
+            </button>`;
+        el.querySelector('button').addEventListener('click', ev => {
+            ev.stopPropagation();
+            setPinMode(!pinMode);
+        });
+        this.el = el;
+        return el;
+    }
+
+    onRemove() { this.el.remove(); }
+}
+
+map.addControl(new PinControl(), 'top-right');
+
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && pinMode) setPinMode(false); });
+
+let lastPinPlaced = 0;
+
+map.on('click', e => {
+    if (!pinMode) return;
+    lastPinPlaced = Date.now();
+    setPinMode(false);
+    placePin(e.lngLat.lat, e.lngLat.lng);
+});
+
+// Desktop: Rechtsklick
+// Rechte Maustaste dient auch zum Drehen: Marker nur setzen, wenn nicht gedreht wurde.
+let lastRotateEnd = 0;
+let rotating = false;
+map.on('rotatestart', () => { rotating = true; });
+map.on('rotateend', () => { rotating = false; lastRotateEnd = Date.now(); });
+
+map.on('contextmenu', e => {
+    e.preventDefault();
+    if (measureMode) return;
+    const { lat, lng } = e.lngLat;
+    // Je nach System kommt contextmenu vor (macOS) oder nach (Windows) dem Drehen.
+    setTimeout(() => {
+        if (rotating || Date.now() - lastRotateEnd < 400) return;
+        placePin(lat, lng);
+    }, 250);
+});
+
+// Touch: langes Tippen (iOS löst kein contextmenu aus)
+(() => {
+    let timer = null;
+    let start = null;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    map.on('touchstart', e => {
+        cancel();
+        if (e.originalEvent.touches.length !== 1 || measureMode) return;
+        start = e.point;
+        const ll = e.lngLat;
+        timer = setTimeout(() => {
+            timer = null;
+            if (navigator.vibrate) navigator.vibrate(30);
+            placePin(ll.lat, ll.lng);
+        }, 600);
+    });
+    map.on('touchmove', e => {
+        if (timer && start && (Math.abs(e.point.x - start.x) > 10 || Math.abs(e.point.y - start.y) > 10)) cancel();
+    });
+    map.on('touchend', cancel);
+    map.on('touchcancel', cancel);
+})();
+
+/* =====================================================================
+   Strecke messen
+   ===================================================================== */
+
+// Geodätische Distanz auf dem WGS84-Ellipsoid (Vincenty, invers), in km.
+function geodesicKm(a, b) {
+    const A = 6378137, f = 1 / 298.257223563, B = A * (1 - f);
+    const rad = Math.PI / 180;
+    const L = (b.lon - a.lon) * rad;
+    const U1 = Math.atan((1 - f) * Math.tan(a.lat * rad));
+    const U2 = Math.atan((1 - f) * Math.tan(b.lat * rad));
+    const sinU1 = Math.sin(U1), cosU1 = Math.cos(U1), sinU2 = Math.sin(U2), cosU2 = Math.cos(U2);
+
+    let lam = L, prev, iter = 0;
+    let sinSig, cosSig, sig, cos2Alpha, cos2SigM;
+    do {
+        const sinLam = Math.sin(lam), cosLam = Math.cos(lam);
+        sinSig = Math.sqrt((cosU2 * sinLam) ** 2 + (cosU1 * sinU2 - sinU1 * cosU2 * cosLam) ** 2);
+        if (sinSig === 0) return 0;
+        cosSig = sinU1 * sinU2 + cosU1 * cosU2 * cosLam;
+        sig = Math.atan2(sinSig, cosSig);
+        const sinAlpha = cosU1 * cosU2 * sinLam / sinSig;
+        cos2Alpha = 1 - sinAlpha * sinAlpha;
+        cos2SigM = cos2Alpha !== 0 ? cosSig - 2 * sinU1 * sinU2 / cos2Alpha : 0;
+        const C = f / 16 * cos2Alpha * (4 + f * (4 - 3 * cos2Alpha));
+        prev = lam;
+        lam = L + (1 - C) * f * sinAlpha *
+            (sig + C * sinSig * (cos2SigM + C * cosSig * (-1 + 2 * cos2SigM * cos2SigM)));
+    } while (Math.abs(lam - prev) > 1e-12 && ++iter < 200);
+    if (iter >= 200) return distKm(a, b); // nahezu antipodal – Kugelnäherung genügt
+
+    const u2 = cos2Alpha * (A * A - B * B) / (B * B);
+    const Ac = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2)));
+    const Bc = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)));
+    const dSig = Bc * sinSig * (cos2SigM + Bc / 4 * (cosSig * (-1 + 2 * cos2SigM * cos2SigM) -
+        Bc / 6 * cos2SigM * (-3 + 4 * sinSig * sinSig) * (-3 + 4 * cos2SigM * cos2SigM)));
+    return B * Ac * (sig - dSig) / 1000;
+}
+
+function fmtMeasure(km) {
+    if (km < 1) return `${fmtNum(km * 1000, km < 0.1 ? 1 : 0)} m`;
+    return `${km.toLocaleString('de-DE', { minimumFractionDigits: km < 100 ? 3 : 1, maximumFractionDigits: km < 100 ? 3 : 1 })} km`;
+}
+
+let measureMode = false;
+let measurePts = []; // { lat, lon, marker }
+
+function measureData() {
+    return {
+        type: 'FeatureCollection',
+        features: measurePts.length > 1 ? [{
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: measurePts.map(p => [p.lon, p.lat]) },
+            properties: {}
+        }] : []
+    };
+}
+
+function measureTotals() {
+    let total = 0;
+    const cum = [0];
+    for (let i = 1; i < measurePts.length; i++) {
+        total += geodesicKm(measurePts[i - 1], measurePts[i]);
+        cum.push(total);
+    }
+    return { total, cum };
+}
+
+function renderMeasure() {
+    const src = map.getSource('messen');
+    if (src) src.setData(measureData());
+
+    const { total, cum } = measureTotals();
+    measurePts.forEach((p, i) => {
+        p.marker.getElement().querySelector('.mp-label').textContent = i === 0 ? 'Start' : fmtMeasure(cum[i]);
+    });
+
+    const box = $('#measureBox');
+    if (!measureMode && !measurePts.length) { box.hidden = true; return; }
+    box.hidden = false;
+
+    const n = measurePts.length;
+    const last = n > 1 ? cum[n - 1] - cum[n - 2] : 0;
+    const hint = measureMode
+        ? (n === 0 ? 'Auf die Karte tippen: Startpunkt setzen'
+            : n === 1 ? 'Zweiten Punkt setzen'
+                : 'Weitere Punkte setzen oder Punkte verschieben')
+        : 'Messung beendet – Punkte lassen sich weiterhin verschieben';
+
+    box.innerHTML = `
+        <div class="mb-head">
+            <span class="mb-title">Strecke</span>
+            <b class="mb-total">${n > 1 ? fmtMeasure(total) : '–'}</b>
+        </div>
+        <div class="mb-sub">${n > 2 ? `${n} Punkte · letzter Abschnitt ${fmtMeasure(last)}` : ''}${n > 2 ? '<br>' : ''}${hint}</div>
+        <div class="mb-actions">
+            <button class="btn-ghost" type="button" data-m="undo" ${n ? '' : 'disabled'}>Zurück</button>
+            <button class="btn-ghost danger" type="button" data-m="clear" ${n ? '' : 'disabled'}>Löschen</button>
+            <button class="btn-ghost${measureMode ? ' primary' : ''}" type="button" data-m="${measureMode ? 'done' : 'resume'}">${measureMode ? 'Fertig' : 'Weiter'}</button>
+            ${n > 1 ? `<button class="copy-btn" type="button" data-copy="${esc(fmtMeasure(total))}" title="Strecke kopieren" aria-label="Strecke kopieren">${COPY_ICON}</button>` : ''}
+        </div>`;
+}
+
+function addMeasurePoint(lat, lon) {
+    const el = document.createElement('div');
+    el.className = 'measure-pt';
+    el.innerHTML = '<span class="mp-dot"></span><span class="mp-label"></span>';
+    const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'center' })
+        .setLngLat([lon, lat])
+        .addTo(map);
+    const p = { lat, lon, marker };
+    marker.on('drag', () => {
+        const ll = marker.getLngLat();
+        p.lat = ll.lat;
+        p.lon = ll.lng;
+        renderMeasure();
+    });
+    measurePts.push(p);
+    renderMeasure();
+}
+
+function clearMeasure() {
+    measurePts.forEach(p => p.marker.remove());
+    measurePts = [];
+    renderMeasure();
+}
+
+function setMeasureMode(on) {
+    if (on && pinMode) setPinMode(false);
+    measureMode = on;
+    map.getContainer().classList.toggle('pin-mode', on || pinMode);
+    if (on) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+    const btn = document.querySelector('.measure-btn');
+    if (btn) btn.setAttribute('aria-pressed', String(on));
+    renderMeasure();
+}
+
+$('#measureBox').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-m]');
+    if (!b) return;
+    const action = b.dataset.m;
+    if (action === 'undo') {
+        const p = measurePts.pop();
+        if (p) p.marker.remove();
+        renderMeasure();
+    } else if (action === 'clear') {
+        clearMeasure();
+        setMeasureMode(false);
+    } else if (action === 'done') {
+        setMeasureMode(false);
+    } else if (action === 'resume') {
+        setMeasureMode(true);
+    }
+});
+
+class MeasureControl {
+    onAdd() {
+        const el = document.createElement('div');
+        el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        el.innerHTML = `
+            <button type="button" class="ctrl-svg measure-btn" aria-pressed="false" title="Strecke messen" aria-label="Strecke messen">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>
+                </svg>
+            </button>`;
+        el.querySelector('button').addEventListener('click', ev => {
+            ev.stopPropagation();
+            setMeasureMode(!measureMode);
+        });
+        this.el = el;
+        return el;
+    }
+
+    onRemove() { this.el.remove(); }
+}
+
+map.addControl(new MeasureControl(), 'top-right');
+
+map.on('click', e => {
+    if (!measureMode) return;
+    addMeasurePoint(e.lngLat.lat, e.lngLat.lng);
+});
+
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && measureMode) setMeasureMode(false); });
+
+/* =====================================================================
+   Start
+   ===================================================================== */
+
+$('#river').innerHTML = CFG.rivers.map((r, i) => `<option value="${i}">${esc(r.name)}</option>`).join('');
+
+const riverIndexByName = name =>
+    CFG.rivers.findIndex(r => r.name.toLowerCase() === String(name || '').trim().toLowerCase());
+
+let configRiverIndex = -1;
+function applyStartRiver() {
+    configRiverIndex = CFG.standardFluss ? riverIndexByName(CFG.standardFluss) : -1;
+    if (configRiverIndex >= 0) $('#river').value = String(configRiverIndex);
+}
+applyStartRiver();
+
+/* ---------- Einstellungen: Start auf diesem Gerät ---------- */
+
+$('#gFluss').innerHTML = '<option value="">– keiner –</option>' +
+    CFG.rivers.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
+$('#gKarte').innerHTML = BASEMAPS.map(b => `<option value="${b.id}">${esc(b.name)} – ${esc(b.hint)}</option>`).join('');
+
+function fillGeraetForm(v) {
+    const fluss = riverIndexByName(v.fluss) >= 0 ? CFG.rivers[riverIndexByName(v.fluss)].name : '';
+    $('#gFluss').value = fluss;
+    $('#gStadt').value = v.stadt || '';
+    const km = parseKmInput(v.km);
+    $('#gKm').value = km === null ? '' : fmtKm(km);
+    $('#gKarte').value = basemapById(v.karte).id;
+}
+
+function describeStart(v) {
+    const parts = [];
+    const km = parseKmInput(v.km);
+    if (v.fluss && km !== null) parts.push(`${v.fluss} km ${fmtKm(km)}`);
+    else if (v.stadt) parts.push(v.stadt + (v.fluss ? ` (${v.fluss})` : ''));
+    else if (v.fluss) parts.push(v.fluss);
+    else parts.push('Deutschlandansicht');
+    parts.push(`Karte „${basemapById(v.karte).name}“`);
+    return parts.join(', ');
+}
+
+function renderGeraetState() {
+    const g = loadDeviceStart();
+    $('#geraetState').textContent = g && g.saved
+        ? `Gespeichert für dieses Gerät: ${describeStart(g)}.`
+        : `Noch nichts gespeichert – es gilt die Vorgabe: ${describeStart(CFG.vorgabe)}.`;
+    $('#gReset').hidden = !(g && g.saved);
+}
+
+function openGeraet() {
+    const g = loadDeviceStart();
+    fillGeraetForm(g && g.saved ? g : CFG.vorgabe);
+    $('#geraetMsg').innerHTML = '';
+    renderGeraetState();
+    const dlg = $('#settingsDlg');
+    if (!dlg.open) dlg.showModal();
+}
+
+function closeGeraet() {
+    const dlg = $('#settingsDlg');
+    if (dlg.open) dlg.close();
+}
+
+$('#settingsClose').addEventListener('click', closeGeraet);
+// Klick auf den abgedunkelten Hintergrund schließt ebenfalls
+$('#settingsDlg').addEventListener('click', ev => { if (ev.target === ev.currentTarget) closeGeraet(); });
+
+$('#geraetBtn').addEventListener('click', openGeraet);
+
+$('#gAktuell').addEventListener('click', () => {
+    const r = selectedRiver();
+    fillGeraetForm({
+        fluss: r ? r.name : '',
+        stadt: $('#ort').value.trim(),
+        km: $('#km').value,
+        karte: ui.base
+    });
+});
+
+// Gespeicherte Einstellung sofort anwenden (sonst erst beim nächsten Start)
+async function applyDeviceStartNow(v) {
+    CFG.standardFluss = v.fluss || '';
+    CFG.standardStadt = v.stadt || '';
+    CFG.standardKm = v.km ?? null;
+    CFG.startMarker = null;
+    applyStartRiver();
+    applyBasemap(v.karte);
+    if (!CFG.standardStadt) setBoundary(null);
+    await startView();
+}
+
+$('#geraetForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const kmRaw = $('#gKm').value.trim();
+    const km = kmRaw ? parseKmInput(kmRaw) : null;
+    if (kmRaw && km === null) {
+        $('#geraetMsg').innerHTML = '<div class="warn">Kilometer bitte als Zahl angeben, z. B. 325 oder 325,4.</div>';
+        return;
+    }
+    if (km !== null && !$('#gFluss').value) {
+        $('#geraetMsg').innerHTML = '<div class="warn">Für einen Start-Kilometer bitte auch den Fluss wählen.</div>';
+        return;
+    }
+    const v = {
+        saved: true,
+        fluss: $('#gFluss').value,
+        stadt: $('#gStadt').value.trim(),
+        km,
+        karte: $('#gKarte').value,
+        savedAt: new Date().toISOString()
+    };
+    if (!saveDeviceStart(v)) {
+        $('#geraetMsg').innerHTML = '<div class="warn">Speichern nicht möglich – der Browser blockiert lokalen Speicher (z. B. privater Modus).</div>';
+        return;
+    }
+    $('#firstRun').innerHTML = '';
+    $('#geraetMsg').innerHTML = `
+        <div class="card ok-card">
+            <p><b>Gespeichert.</b> Gilt ab dem nächsten Start auf diesem Gerät.</p>
+            <button class="btn-ghost" type="button" id="gJetzt">Jetzt anwenden</button>
+        </div>`;
+    $('#gJetzt').addEventListener('click', () => {
+        $('#ort').value = v.stadt;
+        $('#km').value = v.km === null ? '' : fmtKm(v.km);
+        closeGeraet();
+        setTab(v.km !== null ? 'km' : 'ort');
+        if (isMobile()) setCollapsed(true);
+        applyDeviceStartNow(v);
+    });
+    renderGeraetState();
+});
+
+$('#gReset').addEventListener('click', () => {
+    clearDeviceStart();
+    fillGeraetForm(CFG.vorgabe);
+    $('#geraetMsg').innerHTML = '<div class="card"><p>Einstellung gelöscht. Beim nächsten Start gilt wieder die Vorgabe.</p></div>';
+    renderGeraetState();
+});
+
+// Erster Start auf einem neuen Gerät: einmalig anbieten, den Startort festzulegen.
+if (!CFG.geraet && !CFG.fromUrl) {
+    $('#firstRun').innerHTML = `
+        <div class="card first-run">
+            <p><b>Neues Gerät</b> – soll FlussKM hier immer an einem bestimmten Ort starten?</p>
+            <p class="muted">Aktuell gilt die Vorgabe: ${esc(describeStart(CFG.vorgabe))}.</p>
+            <div class="row" style="margin-top:8px">
+                <button class="btn" type="button" id="frSet" style="flex:1">Startort festlegen</button>
+                <button class="btn-ghost" type="button" id="frKeep" style="min-height:44px">Vorgabe behalten</button>
+            </div>
+        </div>`;
+    $('#frSet').addEventListener('click', openGeraet);
+    $('#frKeep').addEventListener('click', () => {
+        saveDeviceStart({ dismissed: true });
+        $('#firstRun').innerHTML = '';
+    });
+    setCollapsed(false);
+}
+
+async function fitRiver(river) {
+    await Promise.race([stationsReady, sleep(8000)]);
+    const gs = riverGauges(river);
+    if (gs.length >= 2) {
+        const lons = gs.map(g => g.lon), lats = gs.map(g => g.lat);
+        map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+            { padding: viewPadding(), maxZoom: 12, essential: true });
+    } else {
+        const [s, w, n, e] = river.bbox;
+        map.fitBounds([[w, s], [e, n]], { padding: viewPadding(), essential: true });
+    }
+}
+
+async function startView() {
+    if (CFG.standardFluss && configRiverIndex < 0) {
+        setStatus(`Standardfluss „${CFG.standardFluss}“ ist unbekannt.`, { error: true });
+    }
+    const river = configRiverIndex >= 0 ? CFG.rivers[configRiverIndex] : null;
+    const km = parseKmInput(CFG.standardKm);
+
+    // Ein geteilter Marker hat Vorrang vor der Standardansicht.
+    if (CFG.startMarker) {
+        const { lat, lon } = CFG.startMarker;
+        map.jumpTo({ center: [lon, lat], zoom: 15, padding: viewPadding() });
+        placePin(lat, lon);
+        return;
+    }
+
+    if (river && km !== null) {
+        $('#km').value = fmtKm(km);
+        await kmSearch(river, km);
+        return;
+    }
+    if (CFG.standardStadt) {
+        $('#ort').value = CFG.standardStadt;
+        await ortSearch(String(CFG.standardStadt), { auto: true });
+        return;
+    }
+    if (river) await fitRiver(river);
+}
+
+let refreshTimer = null;
+function scheduleRefresh() {
+    const ms = Math.max(1, Number(CFG.pegel.aktualisierungMinuten) || 5) * 60000;
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => { if (!document.hidden) loadStations(); }, ms);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && stationsLoadedAt && Date.now() - stationsLoadedAt.getTime() > ms) loadStations();
+    });
+}
+
+map.on('style.load', addOverlays);
+
+map.once('load', () => {
+    // Quellenhinweis zugeklappt starten (überdeckt sonst auf schmalen Displays den Maßstab).
+    document.querySelectorAll('.maplibregl-ctrl-attrib.maplibregl-compact-show')
+        .forEach(el => el.classList.remove('maplibregl-compact-show'));
+    bindPegelEvents();
+    map.on('moveend', updateVisibleStations);
+    loadStations();
+    scheduleRefresh();
+    startView();
+});
+
+renderPegelList();
+if (map.isStyleLoaded()) addOverlays();
+
+})();
+</script>
+
+</body>
+</html>
